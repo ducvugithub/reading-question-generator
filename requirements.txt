@@ -1,0 +1,4 @@
+stanza>=1.9.0
+networkx>=3.3
+langdetect>=1.0.9
+streamlit>=1.35.0
