@@ -6,7 +6,7 @@ from .models import Question
 from .templates import (
     build_question, build_chain_question,
     build_yesno_question, build_comparison_question, build_which_question,
-    build_aggregation_question, TYPE_NOUNS_PLURAL,
+    build_aggregation_question, build_anchor_question, TYPE_NOUNS_PLURAL,
 )
 from .difficulty import RuleBasedEstimator, LEVEL_ORDER
 
@@ -23,7 +23,7 @@ class QuestionGenerator:
         self.lang = lang
         self._estimator = RuleBasedEstimator()
 
-    def generate(self, triples: list[Triple], kg: KnowledgeGraph, num_questions: int = 10) -> list[Question]:
+    def generate(self, triples: list[Triple], kg: KnowledgeGraph, num_questions: int = 10, passage: str = "") -> list[Question]:
         verb_index = _build_verb_index(triples)
         passive_index = _build_passive_index(triples)
         surface_index = _build_surface_index(triples)
@@ -33,12 +33,12 @@ class QuestionGenerator:
         seen: set[str] = set()
 
         all_candidates = (
-            self._multihop(kg, verb_index, passive_index, triple_index)
-            + self._aggregation(kg, triple_index)
+            self._multihop(kg, verb_index, passive_index, triple_index, passage)
+            + self._group_first(kg)
             + self._which(kg, verb_index)
             + self._comparison(kg, verb_index)
-            + self._single_edge(kg, verb_index, passive_index, surface_index, triple_index)
-            + self._yes_no(kg, verb_index, passive_index, triple_index)
+            + self._single_edge(kg, verb_index, passive_index, surface_index, triple_index, passage)
+            + self._yes_no(kg, verb_index, passive_index, triple_index, passage)
         )
         for q in all_candidates:
             if q.text not in seen:
@@ -58,9 +58,24 @@ class QuestionGenerator:
 
     def _single_edge(
         self, kg: KnowledgeGraph, verb_index: dict, passive_index: dict,
-        surface_index: dict, triple_index: dict,
+        surface_index: dict, triple_index: dict, passage: str = "",
     ) -> list[Question]:
+        from collections import defaultdict
+
+        # Build sibling index for aggregation promotion:
+        # (src, verb_base, dst_type) → [dst, ...] for pure-verb edges only
+        sibling_index: dict = defaultdict(list)
+        for src2, dst2, data2 in kg.edges:
+            rel2 = data2["relation"]
+            if "_" in rel2:
+                continue
+            dst_type2 = kg.entity_type(dst2)
+            if dst_type2 in TYPE_NOUNS_PLURAL:
+                sibling_index[(src2, rel2, dst_type2)].append(dst2)
+
+        aggregation_seen: set = set()
         questions = []
+
         for src, dst, data in kg.edges:
             relation = data["relation"]
             if relation.split("_")[0] in _SKIP_VERB_BASES:
@@ -78,14 +93,38 @@ class QuestionGenerator:
                 ("object",  dst, dst_type, src),
                 ("subject", src, src_type, dst),
             ):
+                if mask == "object" and dst_type in _SKIP_MASK_OBJECT_TYPES:
+                    continue
                 if mask == "subject" and dst_type in _SKIP_MASK_SUBJECT_TYPES:
                     continue
                 if mask == "subject" and answer_type in _LOC_TYPES and dst_type in _LOC_TYPES:
                     continue
-                # "_as" obliques mark a role context ("replaced X as CEO of Nokia"),
-                # not a direct object — both mask directions produce misleading questions.
                 if relation.endswith("_as"):
                     continue
+
+                # Promote to aggregation when siblings exist (pure-verb edges only)
+                if mask == "object" and "_" not in relation:
+                    sib_key = (src, relation, dst_type)
+                    siblings = sibling_index.get(sib_key, [])
+                    if len(siblings) >= 2:
+                        if sib_key not in aggregation_seen:
+                            aggregation_seen.add(sib_key)
+                            type_plural = TYPE_NOUNS_PLURAL.get(dst_type)
+                            if type_plural:
+                                agg_text = build_aggregation_question(src, relation, type_plural, self.lang)
+                                if agg_text:
+                                    text_diff = self._estimator.text_side(triple, hop_count=1, passage=passage, kg=kg) if triple else "A2"
+                                    q = Question(
+                                        text=agg_text, answer=", ".join(siblings), answer_type=dst_type,
+                                        text_difficulty=text_diff, question_difficulty="preA1",
+                                        lang=self.lang, source=source,
+                                        is_passive=False, hop_count=1, masked="aggregation",
+                                        answer_list=siblings,
+                                    )
+                                    q.question_difficulty = self._estimator.question_side(q)
+                                    questions.append(q)
+                        continue  # skip individual object question for this edge
+
                 subject_surface = surface_index.get((src, relation, dst), "") if mask == "subject" else ""
                 text = build_question(
                     subject=subject, relation=relation, verb_text=vt,
@@ -93,7 +132,7 @@ class QuestionGenerator:
                     is_passive=is_p, subject_surface=subject_surface,
                 )
                 if text:
-                    text_diff = self._estimator.text_side(triple, hop_count=1) if triple else "A"
+                    text_diff = self._estimator.text_side(triple, hop_count=1, passage=passage, kg=kg) if triple else "A"
                     q = Question(
                         text=text, answer=answer, answer_type=answer_type,
                         text_difficulty=text_diff, question_difficulty="preA1",
@@ -106,7 +145,7 @@ class QuestionGenerator:
 
     # ── Multi-hop ─────────────────────────────────────────────────────────────
 
-    def _multihop(self, kg: KnowledgeGraph, verb_index: dict, passive_index: dict, triple_index: dict) -> list[Question]:
+    def _multihop(self, kg: KnowledgeGraph, verb_index: dict, passive_index: dict, triple_index: dict, passage: str = "") -> list[Question]:
         questions = []
         for node, _ in kg.nodes:
             for path in kg.multihop_paths(node, max_hops=2):
@@ -143,7 +182,7 @@ class QuestionGenerator:
                 )
                 if text:
                     triple = triple_index.get((bridge, rel2, target))
-                    text_diff = self._estimator.text_side(triple, hop_count=2) if triple else "B1"
+                    text_diff = self._estimator.text_side(triple, hop_count=2, passage=passage, kg=kg) if triple else "B1"
                     q = Question(
                         text=text, answer=target, answer_type=target_type,
                         text_difficulty=text_diff, question_difficulty="preA1",
@@ -155,11 +194,75 @@ class QuestionGenerator:
                     questions.append(q)
         return questions
 
+    # ── Category 2: anchor-node questions ─────────────────────────────────────
+
+    def _group_first(self, kg: KnowledgeGraph) -> list[Question]:
+        """
+        Category 2: pick an anchor node, collect all event sentences around it,
+        generate one question per anchor with ≥ 2 distinct source sentences.
+
+        Subject anchors (PERSON, ORG): gather outgoing edges.
+        Object anchors (DATE, GPE, LOC): gather incoming edges.
+        """
+        from collections import defaultdict
+
+        _SUBJECT_ANCHORS = {"PERSON", "PER", "ORG"}
+        _OBJECT_ANCHORS  = {"DATE", "TIME", "GPE", "LOC", "FAC"}
+
+        # anchor → ordered dict of source_sentence → True (preserves insertion order, dedupes)
+        anchor_events: dict = defaultdict(dict)
+
+        for src, dst, data in kg.edges:
+            relation = data["relation"]
+            if relation.split("_")[0] in _SKIP_VERB_BASES:
+                continue
+            if relation.endswith("_as"):
+                continue
+            source_text = data.get("source", "")
+            if not source_text:
+                continue
+
+            src_type = kg.entity_type(src)
+            dst_type = kg.entity_type(dst)
+
+            if src_type in _SUBJECT_ANCHORS:
+                anchor_events[src][source_text] = True
+            if dst_type in _OBJECT_ANCHORS:
+                anchor_events[dst][source_text] = True
+
+        questions = []
+        seen_texts: set = set()
+
+        for anchor, src_map in anchor_events.items():
+            events = list(src_map.keys())
+            if not (1 <= len(events) <= 3):
+                continue
+
+            anchor_type = kg.entity_type(anchor)
+            text = build_anchor_question(anchor, anchor_type, self.lang)
+            if not text or text in seen_texts:
+                continue
+            seen_texts.add(text)
+
+            text_diff = {1: "B1", 2: "B2", 3: "C1"}[len(events)]
+
+            q = Question(
+                text=text, answer=events[0], answer_type=anchor_type,
+                text_difficulty=text_diff, question_difficulty="preA1",
+                lang=self.lang, source="",
+                is_passive=False, hop_count=1, masked="anchor",
+                answer_facts=events,
+            )
+            q.question_difficulty = self._estimator.question_side(q)
+            questions.append(q)
+
+        return questions
+
     # ── Yes / No ──────────────────────────────────────────────────────────────
 
     def _yes_no(
         self, kg: KnowledgeGraph, verb_index: dict, passive_index: dict,
-        triple_index: dict,
+        triple_index: dict, passage: str = "",
     ) -> list[Question]:
         questions = []
         for src, dst, data in kg.edges:
@@ -189,7 +292,7 @@ class QuestionGenerator:
             text = build_yesno_question(src, relation, vt, dst, self.lang, is_passive=is_p)
             if text:
                 triple = triple_index.get((src, relation, dst))
-                text_diff = self._estimator.text_side(triple, hop_count=1) if triple else "A"
+                text_diff = self._estimator.text_side(triple, hop_count=1, passage=passage, kg=kg) if triple else "A"
                 q = Question(
                     text=text, answer="Yes", answer_type=dst_type,
                     text_difficulty=text_diff, question_difficulty="preA1",
@@ -275,54 +378,6 @@ class QuestionGenerator:
                             questions.append(q)
         return questions
 
-    # ── Aggregation ───────────────────────────────────────────────────────────
-
-    def _aggregation(self, kg: KnowledgeGraph, triple_index: dict) -> list[Question]:
-        from collections import defaultdict
-
-        groups: dict = defaultdict(list)
-        for src, dst, data in kg.edges:
-            relation = data["relation"]
-            if "_" in relation:
-                continue
-            dst_type = kg.entity_type(dst)
-            if dst_type not in TYPE_NOUNS_PLURAL:
-                continue
-            groups[(src, relation)].append((dst, dst_type, data.get("source", "")))
-
-        questions = []
-        for (subject, relation), objs in groups.items():
-            if len(objs) < 2:
-                continue
-            obj_types = {otype for _, otype, _ in objs}
-            if len(obj_types) != 1:
-                continue
-            obj_type = obj_types.pop()
-            type_plural = TYPE_NOUNS_PLURAL.get(obj_type)
-            if not type_plural:
-                continue
-
-            answer_list = [obj for obj, _, _ in objs]
-            source = objs[0][2]
-
-            text = build_aggregation_question(subject, relation, type_plural, self.lang)
-            if not text:
-                continue
-
-            triple = triple_index.get((subject, relation, answer_list[0]))
-            text_diff = self._estimator.text_side(triple, hop_count=1) if triple else "A2"
-
-            q = Question(
-                text=text, answer=", ".join(answer_list), answer_type=obj_type,
-                text_difficulty=text_diff, question_difficulty="preA1",
-                lang=self.lang, source=source,
-                is_passive=False, hop_count=1, masked="aggregation",
-                answer_list=answer_list,
-            )
-            q.question_difficulty = self._estimator.question_side(q)
-            questions.append(q)
-        return questions
-
     # ── Which ─────────────────────────────────────────────────────────────────
 
     def _which(self, kg: KnowledgeGraph, verb_index: dict) -> list[Question]:
@@ -394,6 +449,7 @@ class QuestionGenerator:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _SKIP_MASK_SUBJECT_TYPES = {"DATE", "TIME", "MONEY", "CARDINAL", "PERCENT", "QUANTITY"}
+_SKIP_MASK_OBJECT_TYPES = {"MONEY", "CARDINAL", "PERCENT", "QUANTITY"}
 _LOC_TYPES = {"LOC", "GPE", "FAC"}
 _SKIP_YESNO_TYPES = {"DATE", "TIME", "LOC", "GPE", "FAC"}
 # Copula-like verbs that lose their predicative complement during extraction —

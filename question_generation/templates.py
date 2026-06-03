@@ -253,6 +253,30 @@ def build_aggregation_question(subject: str, verb_base: str, type_noun_plural: s
     return f"What {type_noun_plural} did {subject} {verb_base}?"
 
 
+# ── Anchor (Category 2) ───────────────────────────────────────────────────────
+
+_ANCHOR_TEMPLATES = {
+    "DATE":   "What happened in {anchor}?",
+    "TIME":   "What happened in {anchor}?",
+    "GPE":    "What happened in {anchor}?",
+    "LOC":    "What happened in {anchor}?",
+    "FAC":    "What happened in {anchor}?",
+    "PERSON": "What did {anchor} do?",
+    "PER":    "What did {anchor} do?",
+    "ORG":    "What has {anchor} been involved in?",
+}
+
+
+def build_anchor_question(anchor: str, anchor_type: Optional[str], lang: str) -> Optional[str]:
+    """Category 2: anchor node question. English only."""
+    if lang != "en":
+        return None
+    template = _ANCHOR_TEMPLATES.get(anchor_type or "")
+    if not template:
+        return None
+    return template.format(anchor=anchor)
+
+
 # ── Which ─────────────────────────────────────────────────────────────────────
 
 def build_which_question(

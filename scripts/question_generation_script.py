@@ -30,6 +30,7 @@ _FORM_NAMES = {
     "comparison": "comparison",
     "which": "which",
     "aggregation": "list",
+    "anchor": "anchor",
 }
 
 
@@ -65,17 +66,35 @@ def build_markdown(text: str, lang: str, kg: KnowledgeGraph, questions: list) ->
     lines += ["| Type | Text diff | Question diff | Question | Answer |"]
     lines += ["|------|-----------|---------------|----------|--------|"]
 
+    anchor_qs = []
     for q in questions:
         form = _FORM_NAMES.get(q.masked, q.masked)
         hops = f" · {q.hop_count}-hop" if q.masked == "chain" else ""
         t_diff = f"**{q.text_difficulty}** {_LEVEL_LABELS.get(q.text_difficulty, '')}{hops}"
         q_diff = f"**{q.question_difficulty}** {_LEVEL_LABELS.get(q.question_difficulty, '')}"
-        raw_answer = " / ".join(q.answer_list) if q.answer_list else q.answer
+        if q.answer_facts:
+            anchor_qs.append(q)
+            n = len(q.answer_facts)
+            raw_answer = f"({n} events — see below)"
+        elif q.answer_list:
+            raw_answer = " / ".join(q.answer_list)
+        else:
+            raw_answer = q.answer
         answer = raw_answer.replace("|", "\\|")
         question = q.text.replace("|", "\\|")
         lines.append(f"| {form} | {t_diff} | {q_diff} | {question} | {answer} |")
 
     lines.append("")
+
+    # ── Category 2 answers ────────────────────────────────────────────────────
+    if anchor_qs:
+        lines += ["## Category 2 Answers", ""]
+        for q in anchor_qs:
+            lines.append(f"### {q.text}")
+            lines.append("")
+            for i, fact in enumerate(q.answer_facts, 1):
+                lines.append(f"{i}. {fact}")
+            lines.append("")
 
     # ── Knowledge Graph ───────────────────────────────────────────────────────
     n_nodes = kg._g.number_of_nodes()
@@ -122,12 +141,17 @@ def run(input_path: Path, output_path: Path, max_questions: int) -> None:
     print("Generating questions…")
     generator = QuestionGenerator(lang=lang)
     limit = max_questions if max_questions > 0 else 10_000
-    questions = generator.generate(triples, kg, num_questions=limit)
+    questions = generator.generate(triples, kg, num_questions=limit, passage=text)
     print(f"  {len(questions)} questions")
 
     for q in questions:
         kind = _FORM_NAMES.get(q.masked, q.masked)
-        answer_str = " / ".join(q.answer_list) if q.answer_list else q.answer
+        if q.answer_facts:
+            answer_str = f"({len(q.answer_facts)} events)"
+        elif q.answer_list:
+            answer_str = " / ".join(q.answer_list)
+        else:
+            answer_str = q.answer
         print(f"  [T:{q.text_difficulty:<5}/Q:{q.question_difficulty:<5}][{kind:12}] {q.text!r}  ->  {answer_str!r}")
 
     md = build_markdown(text, lang, kg, questions)

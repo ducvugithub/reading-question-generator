@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any, Optional
 
 from knowledge_graph.extractor import Triple
 from ..models import Question
@@ -8,10 +9,6 @@ from ..models import Question
 # CEFR-inspired 8-level scale
 LEVELS = ["preA1", "A1", "A2", "B1", "B2", "C1", "C2", "C2+"]
 LEVEL_ORDER = {level: i for i, level in enumerate(LEVELS)}
-
-# Thresholds are float scores in [0, 1].
-# Each side normalises its raw total by its own max (defined in the subclass),
-# so both text_side and question_side output a comparable [0, 1] value.
 
 _TEXT_THRESHOLDS = [
     (0.75, "C2+"),
@@ -46,26 +43,40 @@ class DifficultyEstimator(ABC):
     """
     Estimates text-side and question-side difficulty on an 8-level CEFR-inspired scale.
 
-    Each side sums three integer sub-scores (structure + grammar + lexical), then
-    normalises the total by the subclass-defined max to produce a float in [0, 1].
-    This ensures all three signals contribute proportionally to their natural range
-    rather than on incompatible raw scales.
+    Text-side combines three independent dimensions:
+      1. Local extraction  — how hard it is to find/parse the answer in its sentence
+                             (hop count, clause depth, passive, coreference)
+      2. Global readability — how hard the passage is overall (LIX score)
+      3. Distractor density — how many similar plausible wrong answers exist in the KG
 
-    Subclasses must define:
-      text_max      — sum of maximum possible text-side sub-scores
-      question_max  — sum of maximum possible question-side sub-scores
+    Combined score:  0.50 × local + 0.25 × readability + 0.25 × distractor
+
+    Question-side combines: form complexity + passive grammar + lexical abstraction.
+
+    Subclasses must implement the six abstract text/question sub-score methods.
+    text_readability() and text_distractor() are optional overrides (default: 0.0).
     """
 
-    text_max: int = 1       # override in subclass
-    question_max: int = 1   # override in subclass
+    text_max: int = 1       # max raw score for local extraction sub-scores
+    question_max: int = 1
 
-    def text_side(self, triple: Triple, hop_count: int = 1) -> str:
-        raw = (
+    def text_side(
+        self,
+        triple: Triple,
+        hop_count: int = 1,
+        passage: str = "",
+        kg: Optional[Any] = None,
+    ) -> str:
+        local_raw = (
             self.text_structure(triple, hop_count)
             + self.text_grammar(triple)
             + self.text_lexical(triple)
         )
-        return _level(raw / self.text_max, _TEXT_THRESHOLDS)
+        local = local_raw / self.text_max
+        readability = self.text_readability(passage) if passage else 0.0
+        distractor = self.text_distractor(triple, kg) if kg is not None else 0.0
+        combined = 0.50 * local + 0.25 * readability + 0.25 * distractor
+        return _level(combined, _TEXT_THRESHOLDS)
 
     def question_side(self, question: Question) -> str:
         raw = (
@@ -75,7 +86,7 @@ class DifficultyEstimator(ABC):
         )
         return _level(raw / self.question_max, _QUESTION_THRESHOLDS)
 
-    # ── Text-side ─────────────────────────────────────────────────────────────
+    # ── Text-side: local extraction (abstract) ────────────────────────────────
 
     @abstractmethod
     def text_structure(self, triple: Triple, hop_count: int) -> int:
@@ -88,6 +99,16 @@ class DifficultyEstimator(ABC):
     @abstractmethod
     def text_lexical(self, triple: Triple) -> int:
         """Semantic distance of the answer: coreference resolution required."""
+
+    # ── Text-side: global + distractor (optional overrides) ──────────────────
+
+    def text_readability(self, passage: str) -> float:
+        """Global passage difficulty normalised to [0, 1]. Override to implement."""
+        return 0.0
+
+    def text_distractor(self, triple: Triple, kg: Any) -> float:
+        """Distractor density normalised to [0, 1]. Override to implement."""
+        return 0.0
 
     # ── Question-side ─────────────────────────────────────────────────────────
 

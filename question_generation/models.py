@@ -17,7 +17,8 @@ class Question:
     hop_count: int = 1         # 1 = single edge, 2 = multi-hop chain
     masked: str = "object"     # "object", "subject", "chain", "yesno", "comparison", "which"
     chain_path: str = ""       # C-level only: "anchor →[rel1]→ bridge →[rel2]→ target"
-    answer_list: list = field(default_factory=list)  # aggregation: all expected answers
+    answer_list: list = field(default_factory=list)   # cat-1 aggregation: all entity answers
+    answer_facts: list = field(default_factory=list)  # cat-2 anchor: all event sentences
 
     def __repr__(self) -> str:
         return (

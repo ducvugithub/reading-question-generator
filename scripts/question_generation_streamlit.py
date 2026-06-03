@@ -170,7 +170,8 @@ with col_right:
         lang = st.session_state.lang
         with st.spinner("Generating questions…"):
             all_qs = _generator(lang).generate(
-                st.session_state.triples, st.session_state.kg, num_questions=100
+                st.session_state.triples, st.session_state.kg,
+                num_questions=100, passage=st.session_state.raw_text,
             )
             st.session_state["questions"] = [
                 q for q in all_qs
@@ -212,18 +213,26 @@ with col_right:
         for q in questions:
             t_colour = _DIFF_COLOR.get(q.text_difficulty, "gray")
             q_colour = _DIFF_COLOR.get(q.question_difficulty, "gray")
-            answer_display = " / ".join(q.answer_list) if q.answer_list else q.answer
+            if q.answer_facts:
+                answer_display = f"({len(q.answer_facts)} events)"
+            elif q.answer_list:
+                answer_display = " / ".join(q.answer_list)
+            else:
+                answer_display = q.answer
             st.markdown(
                 f":{t_colour}[**T:{q.text_difficulty}**] :{q_colour}[**Q:{q.question_difficulty}**] {q.text} "
                 f"<sub>&nbsp;→&nbsp;<b>{answer_display}</b> &nbsp;·&nbsp; {q.answer_type or '—'}</sub>",
                 unsafe_allow_html=True,
             )
 
-            if q.chain_path or q.source:
+            if q.answer_facts or q.chain_path or q.source:
                 with st.expander("📍 Source"):
                     if q.chain_path:
                         st.markdown(_chain_html(q.chain_path), unsafe_allow_html=True)
-                    if q.source:
+                    if q.answer_facts:
+                        for i, fact in enumerate(q.answer_facts, 1):
+                            st.markdown(f"{i}. {fact}")
+                    elif q.source:
                         st.markdown(_source_html(q.source, q.answer), unsafe_allow_html=True)
 
             st.divider()
