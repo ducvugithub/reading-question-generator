@@ -14,8 +14,9 @@ class Question:
     is_passive: bool = False
     source: str = ""
     hop_count: int = 1
-    masked: str = "object"       # "object", "subject", "yesno", "comparison", "which",
-                                 # "aggregation", "count", "anchor", "chain"
+    masked: str = "object"       # "object", "subject", "true_claim", "false_claim",
+                                 # "comparison", "which", "aggregation", "count",
+                                 # "subgraph", "chain", "chain_subgraph", "bridge"
     chain_path: str = ""
     answer_list: list = field(default_factory=list)   # aggregation: all answer entities
     answer_facts: list = field(default_factory=list)  # anchor: all event sentences

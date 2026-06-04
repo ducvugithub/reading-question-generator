@@ -3,24 +3,26 @@ from __future__ import annotations
 from typing import Optional
 
 from knowledge_graph.extractor import Triple
-from .base import DifficultyEstimator
+from question_generation.difficulty.base import DifficultyEstimator
 
 # ── Question-type base scores [0, 1] ─────────────────────────────────────────
 _TYPE_SCORE: dict[str, float] = {
-    "yesno":       0.20,
-    "object":      0.20,
-    "subject":     0.20,
-    "comparison":  0.35,
-    "which":       0.35,
-    "aggregation": 0.30,
-    "count":       0.30,
-    "subgraph":       0.25,
-    "chain_subgraph": 0.38,
-    "chain":          0.55,
+    "true_claim":     0.20,
+    "false_claim":    0.20,
+    "object":         0.20,
+    "subject":        0.20,
+    "comparison":     0.25,
+    "which":          0.25,
+    "aggregation":    0.37,
+    "count":          0.25,
+    "subgraph":       0.27,
+    "chain_subgraph": 0.35,
+    "chain":          0.30,
+    "bridge":         0.30,
 }
 
 # Extra type score added for chain questions with > 2 hops
-_HOP_BONUS: dict[int, float] = {1: 0.0, 2: 0.0, 3: 0.20, 4: 0.40}
+_HOP_BONUS: dict[int, float] = {1: 0.0, 2: 0.0, 3: 0.20, 4: 0.30}
 
 # LIX normalisation: practical range 20 (very easy) → 65 (very hard)
 _LIX_MIN = 20.0
@@ -31,8 +33,8 @@ class RuleBasedEstimator(DifficultyEstimator):
     """
     Hand-crafted four-component difficulty estimator.
 
-    score_type:        yesno(0.10) < wh-(0.20) < count/aggr(0.30) < anchor(0.25)
-                       < comparison/which(0.35) < chain(0.55, +hop bonus)
+    score_type:        true_claim/false_claim(0.20) < wh-(0.20) < count/aggr(0.30) < subgraph(0.25)
+                       < comparison/which/chain(0.35) < chain(+hop bonus)
     score_local:       average of four normalised sub-signals from the KG triple
     score_vocab:       passive inversion (0.5) + chain nominalization (0.5)
     score_readability: CEFR model if provided, else LIX normalised from [20, 65] → [0, 1]

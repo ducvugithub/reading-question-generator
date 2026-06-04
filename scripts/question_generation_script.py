@@ -27,12 +27,14 @@ _FORM_NAMES = {
     "object": "wh-",
     "subject": "wh-",
     "chain": "wh-",      # multi-hop wh-, distinguished by hop count in Difficulty column
-    "yesno": "yes/no",
+    "true_claim": "true-claim",
+    "false_claim": "false-claim",
     "comparison": "comparison",
     "which": "which",
     "aggregation": "list",
     "subgraph": "subgraph",
     "chain_subgraph": "chain-subgraph",
+    "bridge": "bridge",
     "count": "count",
 }
 

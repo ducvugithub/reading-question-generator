@@ -44,7 +44,7 @@ class ChainQuestion(QuestionType):
                     triple = ctx.triple_index.get((bridge, rel2, target))
                     s_type = ctx.estimator.score_type("chain", hop_count=2)
                     s_local = ctx.estimator.score_local(triple) if triple else 0.15
-                    s_vocab = ctx.estimator.score_vocab(is_p2, "chain")
+                    s_vocab = ctx.estimator.score_vocab(is_p2, "object")  # no chain bonus; s_type already captures multi-hop complexity
                     q = Question(
                         text=text, answer=target, answer_type=target_type,
                         difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .base import LEVEL_ORDER, LEVELS
+from question_generation.difficulty.base import LEVEL_ORDER, LEVELS
 
 _MODEL_ID = "AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2"
 _LEVEL_MAX = len(LEVELS) - 1  # 7
