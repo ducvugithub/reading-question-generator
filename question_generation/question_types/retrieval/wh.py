@@ -53,6 +53,8 @@ class WHQuestion(QuestionType):
                     continue
                 if relation.endswith("_as"):
                     continue
+                if mask == "subject" and "_" in relation and not relation.endswith("_by"):
+                    continue
 
                 if mask == "object" and "_" not in relation:
                     sib_key = (src, relation, dst_type)

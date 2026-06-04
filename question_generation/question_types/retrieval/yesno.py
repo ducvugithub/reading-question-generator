@@ -91,7 +91,9 @@ class YesNoQuestion(QuestionType):
                 continue
             candidates = [
                 n for n in by_type.get(dst_type, [])
-                if n != dst and n != src and (src, relation, n) not in true_facts
+                if n != dst and n != src
+                and (src, relation, n) not in true_facts
+                and not any(part in source for part in n.split())
             ]
             if not candidates:
                 continue

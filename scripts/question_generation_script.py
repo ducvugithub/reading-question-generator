@@ -77,7 +77,7 @@ def build_markdown(text: str, lang: str, kg: KnowledgeGraph, questions: list) ->
         if q.masked == "chain":
             form = f"chain({q.hop_count})"
         diff = f"**{q.difficulty}** {_LEVEL_LABELS.get(q.difficulty, '')}"
-        if q.answer_facts:
+        if q.answer_facts and q.masked == "subgraph":
             if len(q.answer_facts) == 1:
                 raw_answer = q.answer_facts[0]
             else:
@@ -159,7 +159,7 @@ def run(input_path: Path, output_path: Path, max_questions: int) -> None:
 
     for q in questions:
         kind = _FORM_NAMES.get(q.masked, q.masked)
-        if q.answer_facts:
+        if q.answer_facts and q.masked == "subgraph":
             answer_str = q.answer_facts[0] if len(q.answer_facts) == 1 else f"({len(q.answer_facts)} events)"
         elif q.answer_list:
             answer_str = " / ".join(q.answer_list)
