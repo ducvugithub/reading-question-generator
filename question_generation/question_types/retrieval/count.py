@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+from collections import defaultdict
+
+from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
+from question_generation.models import Question
+from question_generation.templates import build_count_question, TYPE_NOUNS_PLURAL
+
+
+class CountQuestion(QuestionType):
+    tier = "retrieval"
+
+    def generate(self, ctx: GenerationContext) -> list[Question]:
+        kg = ctx.kg
+        s_read = ctx.estimator.score_readability(ctx.passage)
+        s_type = ctx.estimator.score_type("count")
+        s_vocab = ctx.estimator.score_vocab(False, "count")
+
+        groups: dict = defaultdict(list)
+        for src, dst, data in kg.edges:
+            relation = data["relation"]
+            if "_" in relation or relation.split("_")[0] in SKIP_VERB_BASES:
+                continue
+            dst_type = kg.entity_type(dst)
+            if dst_type in TYPE_NOUNS_PLURAL:
+                groups[(src, relation, dst_type)].append(dst)
+
+        questions = []
+        for (subject, relation, dst_type), objs in groups.items():
+            if len(objs) < 2:
+                continue
+            type_plural = TYPE_NOUNS_PLURAL.get(dst_type)
+            if not type_plural:
+                continue
+            text = build_count_question(subject, relation, type_plural, self.lang)
+            if not text:
+                continue
+            triple = ctx.triple_index.get((subject, relation, objs[0]))
+            s_local = ctx.estimator.score_local(triple) if triple else 0.1
+            q = Question(
+                text=text, answer=str(len(objs)), answer_type="CARDINAL",
+                difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),
+                lang=self.lang, source="",
+                is_passive=False, hop_count=1, masked="count",
+                tier="retrieval",
+                score_type=s_type, score_local=s_local,
+                score_vocab=s_vocab, score_readability=s_read,
+            )
+            questions.append(q)
+        return questions

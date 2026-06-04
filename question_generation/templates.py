@@ -253,6 +253,35 @@ def build_aggregation_question(subject: str, verb_base: str, type_noun_plural: s
     return f"What {type_noun_plural} did {subject} {verb_base}?"
 
 
+def build_count_question(subject: str, verb_base: str, type_noun_plural: str, lang: str) -> Optional[str]:
+    """'How many {type_plural} did {subject} {verb}?' English only."""
+    if lang != "en":
+        return None
+    return f"How many {type_noun_plural} did {subject} {verb_base}?"
+
+
+# ── Multi-anchor ─────────────────────────────────────────────────────────────
+
+_OBJ_PREP = {
+    "DATE": "in", "TIME": "in",
+    "GPE": "in", "LOC": "at", "FAC": "at",
+}
+
+
+def build_multi_anchor_question(
+    subject: str,
+    subject_type: str,
+    obj: str,
+    obj_type: str,
+    lang: str,
+) -> Optional[str]:
+    """'What did {subject} do in/at {obj}?' English only."""
+    if lang != "en":
+        return None
+    prep = _OBJ_PREP.get(obj_type, "in")
+    return f"What did {subject} do {prep} {obj}?"
+
+
 # ── Anchor (Category 2) ───────────────────────────────────────────────────────
 
 _ANCHOR_TEMPLATES = {

@@ -1,0 +1,6 @@
+from question_generation.question_types.inferential.comparison import ComparisonQuestion
+from question_generation.question_types.inferential.chain import ChainQuestion
+from question_generation.question_types.inferential.subgraph import SubgraphQuestion
+from question_generation.question_types.inferential.chain_subgraph import ChainSubgraphQuestion
+
+TYPES = [ComparisonQuestion, ChainQuestion, SubgraphQuestion, ChainSubgraphQuestion]

@@ -17,6 +17,7 @@ from langdetect import detect, LangDetectException
 
 from knowledge_graph import KnowledgeGraph, KnowledgeGraphExtractor, resolve_coreferences
 from question_generation import QuestionGenerator
+from question_generation.difficulty import CefrReadability
 
 from question_generation.difficulty import LEVELS, LEVEL_ORDER
 
@@ -34,13 +35,18 @@ _DIFF_COLOR = {
 
 
 @st.cache_resource
+def _cefr_readability() -> CefrReadability:
+    return CefrReadability()
+
+
+@st.cache_resource
 def _extractor(lang: str) -> KnowledgeGraphExtractor:
     return KnowledgeGraphExtractor(lang=lang)
 
 
 @st.cache_resource
 def _generator(lang: str) -> QuestionGenerator:
-    return QuestionGenerator(lang=lang)
+    return QuestionGenerator(lang=lang, cefr_readability=_cefr_readability())
 
 
 def _source_html(source: str, answer: str) -> str:
@@ -175,7 +181,7 @@ with col_right:
             )
             st.session_state["questions"] = [
                 q for q in all_qs
-                if LEVEL_ORDER.get(q.text_difficulty, 0) <= LEVEL_ORDER.get(max_diff, 7)
+                if LEVEL_ORDER.get(q.difficulty, 0) <= LEVEL_ORDER.get(max_diff, 7)
             ][:int(num_q)]
 
         st.session_state["processing"] = False
@@ -211,16 +217,15 @@ with col_right:
         st.subheader(f"{len(questions)} questions")
 
         for q in questions:
-            t_colour = _DIFF_COLOR.get(q.text_difficulty, "gray")
-            q_colour = _DIFF_COLOR.get(q.question_difficulty, "gray")
+            colour = _DIFF_COLOR.get(q.difficulty, "gray")
             if q.answer_facts:
-                answer_display = f"({len(q.answer_facts)} events)"
+                answer_display = q.answer_facts[0] if len(q.answer_facts) == 1 else f"({len(q.answer_facts)} events)"
             elif q.answer_list:
                 answer_display = " / ".join(q.answer_list)
             else:
                 answer_display = q.answer
             st.markdown(
-                f":{t_colour}[**T:{q.text_difficulty}**] :{q_colour}[**Q:{q.question_difficulty}**] {q.text} "
+                f":{colour}[**{q.difficulty}**] {q.text} "
                 f"<sub>&nbsp;→&nbsp;<b>{answer_display}</b> &nbsp;·&nbsp; {q.answer_type or '—'}</sub>",
                 unsafe_allow_html=True,
             )

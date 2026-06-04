@@ -1,39 +1,29 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
 
 from knowledge_graph.extractor import Triple
-from ..models import Question
 
-# CEFR-inspired 8-level scale
 LEVELS = ["preA1", "A1", "A2", "B1", "B2", "C1", "C2", "C2+"]
 LEVEL_ORDER = {level: i for i, level in enumerate(LEVELS)}
 
-_TEXT_THRESHOLDS = [
-    (0.75, "C2+"),
-    (0.55, "C2"),
-    (0.40, "C1"),
-    (0.25, "B2"),
-    (0.20, "B1"),
-    (0.12, "A2"),
-    (0.04, "A1"),
-    (0.00, "preA1"),
-]
-
-_QUESTION_THRESHOLDS = [
-    (0.90, "C2"),   # chain passive (max score) lands here
-    (0.70, "C1"),   # chain active
-    (0.55, "B2"),
-    (0.38, "B1"),   # wh- passive, comparison, which
-    (0.30, "A2"),
-    (0.10, "A1"),   # wh- active
-    (0.00, "preA1"),
+# Combined score [0, 1] → CEFR level
+# Thresholds are evenly spaced at 1/7 intervals, aligned to the ModernBERT CEFR scale:
+#   s_read = idx/7 (e.g. B2 = 4/7 = 0.571), boundaries at midpoints between levels
+_THRESHOLDS = [
+    (6.5 / 7, "C2+"),   # 0.929
+    (5.5 / 7, "C2"),    # 0.786
+    (4.5 / 7, "C1"),    # 0.643
+    (3.5 / 7, "B2"),    # 0.500
+    (2.5 / 7, "B1"),    # 0.357
+    (1.5 / 7, "A2"),    # 0.214
+    (0.5 / 7, "A1"),    # 0.071
+    (0.000,   "preA1"),
 ]
 
 
-def _level(score: float, thresholds: list[tuple[float, str]]) -> str:
-    for threshold, label in thresholds:
+def _level(score: float) -> str:
+    for threshold, label in _THRESHOLDS:
         if score >= threshold:
             return label
     return "preA1"
@@ -41,85 +31,35 @@ def _level(score: float, thresholds: list[tuple[float, str]]) -> str:
 
 class DifficultyEstimator(ABC):
     """
-    Estimates text-side and question-side difficulty on an 8-level CEFR-inspired scale.
+    Four-component difficulty estimator mapping to an 8-level CEFR-inspired scale.
 
-    Text-side combines three independent dimensions:
-      1. Local extraction  — how hard it is to find/parse the answer in its sentence
-                             (hop count, clause depth, passive, coreference)
-      2. Global readability — how hard the passage is overall (LIX score)
-      3. Distractor density — how many similar plausible wrong answers exist in the KG
+    Components (each [0, 1]):
+      score_type        — question form complexity (yesno < wh < chain)
+      score_local       — answer extraction difficulty (depth, passive, coref)
+      score_vocab       — question phrasing complexity (passive, nominalization)
+      score_readability — passage readability (LIX)
 
-    Combined score:  0.50 × local + 0.25 × readability + 0.25 × distractor
-
-    Question-side combines: form complexity + passive grammar + lexical abstraction.
-
-    Subclasses must implement the six abstract text/question sub-score methods.
-    text_readability() and text_distractor() are optional overrides (default: 0.0).
+    Combined: 0.5×type + 0.3×local + 0.1×vocab + 0.1×readability → estimate()
     """
 
-    text_max: int = 1       # max raw score for local extraction sub-scores
-    question_max: int = 1
+    @abstractmethod
+    def score_type(self, masked: str, hop_count: int = 1) -> float:
+        """Question form complexity [0, 1]."""
 
-    def text_side(
-        self,
-        triple: Triple,
-        hop_count: int = 1,
-        passage: str = "",
-        kg: Optional[Any] = None,
+    @abstractmethod
+    def score_local(self, triple: Triple) -> float:
+        """Answer extraction difficulty [0, 1]: clause depth, passive, coreference."""
+
+    @abstractmethod
+    def score_vocab(self, is_passive: bool, masked: str) -> float:
+        """Question phrasing complexity [0, 1]: passive inversion, nominalization."""
+
+    @abstractmethod
+    def score_readability(self, passage: str) -> float:
+        """Passage readability [0, 1]: LIX normalised to [20, 65]."""
+
+    def estimate(
+        self, s_type: float, s_local: float, s_vocab: float, s_read: float
     ) -> str:
-        local_raw = (
-            self.text_structure(triple, hop_count)
-            + self.text_grammar(triple)
-            + self.text_lexical(triple)
-        )
-        local = local_raw / self.text_max
-        readability = self.text_readability(passage) if passage else 0.0
-        distractor = self.text_distractor(triple, kg) if kg is not None else 0.0
-        combined = 0.50 * local + 0.25 * readability + 0.25 * distractor
-        return _level(combined, _TEXT_THRESHOLDS)
-
-    def question_side(self, question: Question) -> str:
-        raw = (
-            self.question_structure(question)
-            + self.question_grammar(question)
-            + self.question_lexical(question)
-        )
-        return _level(raw / self.question_max, _QUESTION_THRESHOLDS)
-
-    # ── Text-side: local extraction (abstract) ────────────────────────────────
-
-    @abstractmethod
-    def text_structure(self, triple: Triple, hop_count: int) -> int:
-        """Reasoning depth: hop count, source clause depth, answer tree depth."""
-
-    @abstractmethod
-    def text_grammar(self, triple: Triple) -> int:
-        """Grammatical complexity of the source sentence: passive voice."""
-
-    @abstractmethod
-    def text_lexical(self, triple: Triple) -> int:
-        """Semantic distance of the answer: coreference resolution required."""
-
-    # ── Text-side: global + distractor (optional overrides) ──────────────────
-
-    def text_readability(self, passage: str) -> float:
-        """Global passage difficulty normalised to [0, 1]. Override to implement."""
-        return 0.0
-
-    def text_distractor(self, triple: Triple, kg: Any) -> float:
-        """Distractor density normalised to [0, 1]. Override to implement."""
-        return 0.0
-
-    # ── Question-side ─────────────────────────────────────────────────────────
-
-    @abstractmethod
-    def question_structure(self, question: Question) -> int:
-        """Form complexity: yes/no < wh- < comparison/which < chain."""
-
-    @abstractmethod
-    def question_grammar(self, question: Question) -> int:
-        """Grammatical complexity of the question: passive voice inversion."""
-
-    @abstractmethod
-    def question_lexical(self, question: Question) -> int:
-        """Lexical distance from source: nominalization in chain questions."""
+        combined = (s_type + s_local + s_vocab + s_read) / 4
+        return _level(combined)

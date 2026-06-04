@@ -9,19 +9,25 @@ class Question:
     text: str
     answer: str
     answer_type: Optional[str]
-    text_difficulty: str       # preA1 … C2+  — text-side signals
-    question_difficulty: str   # preA1 … C2+  — question-side signals
+    difficulty: str              # combined CEFR level: preA1 … C2+
     lang: str
     is_passive: bool = False
     source: str = ""
-    hop_count: int = 1         # 1 = single edge, 2 = multi-hop chain
-    masked: str = "object"     # "object", "subject", "chain", "yesno", "comparison", "which"
-    chain_path: str = ""       # C-level only: "anchor →[rel1]→ bridge →[rel2]→ target"
-    answer_list: list = field(default_factory=list)   # cat-1 aggregation: all entity answers
-    answer_facts: list = field(default_factory=list)  # cat-2 anchor: all event sentences
+    hop_count: int = 1
+    masked: str = "object"       # "object", "subject", "yesno", "comparison", "which",
+                                 # "aggregation", "count", "anchor", "chain"
+    chain_path: str = ""
+    answer_list: list = field(default_factory=list)   # aggregation: all answer entities
+    answer_facts: list = field(default_factory=list)  # anchor: all event sentences
+    tier: str = "retrieval"
+    # Component difficulty scores [0.0, 1.0] — for debugging and reporting
+    score_type: float = 0.0
+    score_local: float = 0.0
+    score_vocab: float = 0.0
+    score_readability: float = 0.0
 
     def __repr__(self) -> str:
         return (
-            f"[T:{self.text_difficulty}/Q:{self.question_difficulty}] "
+            f"[{self.difficulty}] "
             f"{self.text!r}  →  {self.answer!r}"
         )

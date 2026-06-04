@@ -15,6 +15,7 @@ from langdetect import detect, LangDetectException
 
 from knowledge_graph import KnowledgeGraph, KnowledgeGraphExtractor, resolve_coreferences
 from question_generation import QuestionGenerator
+from question_generation.difficulty import CefrReadability
 
 _LANG_NAMES = {"en": "English", "fi": "Finnish"}
 _LEVEL_LABELS = {
@@ -30,7 +31,9 @@ _FORM_NAMES = {
     "comparison": "comparison",
     "which": "which",
     "aggregation": "list",
-    "anchor": "anchor",
+    "subgraph": "subgraph",
+    "chain_subgraph": "chain-subgraph",
+    "count": "count",
 }
 
 
@@ -63,26 +66,32 @@ def build_markdown(text: str, lang: str, kg: KnowledgeGraph, questions: list) ->
 
     # ── Questions ────────────────────────────────────────────────────────────
     lines += ["## Questions", ""]
-    lines += ["| Type | Text diff | Question diff | Question | Answer |"]
-    lines += ["|------|-----------|---------------|----------|--------|"]
+    lines += ["| Type | Difficulty | s_type | s_local | s_vocab | s_read | Question | Answer |"]
+    lines += ["|------|------------|--------|---------|---------|--------|----------|--------|"]
 
     anchor_qs = []
     for q in questions:
         form = _FORM_NAMES.get(q.masked, q.masked)
-        hops = f" · {q.hop_count}-hop" if q.masked == "chain" else ""
-        t_diff = f"**{q.text_difficulty}** {_LEVEL_LABELS.get(q.text_difficulty, '')}{hops}"
-        q_diff = f"**{q.question_difficulty}** {_LEVEL_LABELS.get(q.question_difficulty, '')}"
+        if q.masked == "chain":
+            form = f"chain({q.hop_count})"
+        diff = f"**{q.difficulty}** {_LEVEL_LABELS.get(q.difficulty, '')}"
         if q.answer_facts:
-            anchor_qs.append(q)
-            n = len(q.answer_facts)
-            raw_answer = f"({n} events — see below)"
+            if len(q.answer_facts) == 1:
+                raw_answer = q.answer_facts[0]
+            else:
+                anchor_qs.append(q)
+                raw_answer = f"({len(q.answer_facts)} events — see below)"
         elif q.answer_list:
             raw_answer = " / ".join(q.answer_list)
         else:
             raw_answer = q.answer
         answer = raw_answer.replace("|", "\\|")
         question = q.text.replace("|", "\\|")
-        lines.append(f"| {form} | {t_diff} | {q_diff} | {question} | {answer} |")
+        lines.append(
+            f"| {form} | {diff} "
+            f"| {q.score_type:.2f} | {q.score_local:.2f} | {q.score_vocab:.2f} | {q.score_readability:.2f} "
+            f"| {question} | {answer} |"
+        )
 
     lines.append("")
 
@@ -138,8 +147,10 @@ def run(input_path: Path, output_path: Path, max_questions: int) -> None:
     kg.add_triples(triples)
     print(f"  {kg._g.number_of_nodes()} nodes, {kg._g.number_of_edges()} edges")
 
+    print("Loading CEFR readability model…")
+    cefr = CefrReadability()
     print("Generating questions…")
-    generator = QuestionGenerator(lang=lang)
+    generator = QuestionGenerator(lang=lang, cefr_readability=cefr)
     limit = max_questions if max_questions > 0 else 10_000
     questions = generator.generate(triples, kg, num_questions=limit, passage=text)
     print(f"  {len(questions)} questions")
@@ -147,12 +158,12 @@ def run(input_path: Path, output_path: Path, max_questions: int) -> None:
     for q in questions:
         kind = _FORM_NAMES.get(q.masked, q.masked)
         if q.answer_facts:
-            answer_str = f"({len(q.answer_facts)} events)"
+            answer_str = q.answer_facts[0] if len(q.answer_facts) == 1 else f"({len(q.answer_facts)} events)"
         elif q.answer_list:
             answer_str = " / ".join(q.answer_list)
         else:
             answer_str = q.answer
-        print(f"  [T:{q.text_difficulty:<5}/Q:{q.question_difficulty:<5}][{kind:12}] {q.text!r}  ->  {answer_str!r}")
+        print(f"  [{q.difficulty:<5}][{kind:12}] {q.text!r}  ->  {answer_str!r}")
 
     md = build_markdown(text, lang, kg, questions)
     output_path.write_text(md, encoding="utf-8")
