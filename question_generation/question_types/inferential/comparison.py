@@ -5,13 +5,13 @@ from collections import defaultdict
 
 from question_generation.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_comparison_question
+from question_generation.templates import build_comparison_question, build_comparison_variant
 
 
 class ComparisonQuestion(QuestionType):
     tier = "inferential"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
         s_type = ctx.estimator.score_type("comparison")
@@ -75,17 +75,18 @@ class ComparisonQuestion(QuestionType):
                     seen_pairs.add(pair)
                     verb_past = a_verb or b_verb
                     for earlier in (True, False):
-                        text = build_comparison_question(a_entity, b_entity, verb_past, self.lang, earlier)
-                        if text:
+                        result = build_comparison_variant(a_entity, b_entity, verb_past, self.lang, earlier, target_cefr)
+                        if result:
+                            text, vocab_score = result
                             answer = a_entity if (earlier == (a_year < b_year)) else b_entity
                             q = Question(
                                 text=text, answer=answer, answer_type=a_type,
-                                difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),
+                                difficulty=ctx.estimator.estimate(s_type, s_local, vocab_score, s_read),
                                 lang=self.lang, source=a_src,
                                 is_passive=False, hop_count=1, masked="comparison",
                                 tier="inferential",
                                 score_type=s_type, score_local=s_local,
-                                score_vocab=s_vocab, score_readability=s_read,
+                                score_vocab=vocab_score, score_readability=s_read,
                             )
                             questions.append(q)
         return questions

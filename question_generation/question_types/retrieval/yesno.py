@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES, SKIP_YESNO_TYPES
 from question_generation.models import Question
-from question_generation.templates import build_yesno_question
+from question_generation.templates import build_yesno_question, build_yesno_variant
 
 # Entity types eligible as false-premise distractors
 _SUBSTITUTABLE_TYPES = {"ORG", "PERSON", "PER", "GPE", "LOC", "FAC", "DATE", "TIME"}
@@ -17,7 +17,7 @@ class YesNoQuestion(QuestionType):
     """
     tier = "retrieval"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
 
@@ -73,18 +73,20 @@ class YesNoQuestion(QuestionType):
             s_vocab = ctx.estimator.score_vocab(is_p, "true_claim")
 
             # Positive
-            text = build_yesno_question(src, relation, vt, dst, self.lang, is_passive=is_p)
-            if text and text not in seen_texts:
-                seen_texts.add(text)
-                questions.append(Question(
-                    text=text, answer="Yes", answer_type=dst_type,
-                    difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),
-                    lang=self.lang, source=source,
-                    is_passive=is_p, hop_count=1, masked="true_claim",
-                    tier="retrieval",
-                    score_type=s_type, score_local=s_local,
-                    score_vocab=s_vocab, score_readability=s_read,
-                ))
+            result = build_yesno_variant(src, relation, vt, dst, self.lang, is_passive=is_p, is_false_claim=False, target_cefr=target_cefr)
+            if result:
+                text, vocab_score = result
+                if text not in seen_texts:
+                    seen_texts.add(text)
+                    questions.append(Question(
+                        text=text, answer="Yes", answer_type=dst_type,
+                        difficulty=ctx.estimator.estimate(s_type, s_local, vocab_score, s_read),
+                        lang=self.lang, source=source,
+                        is_passive=is_p, hop_count=1, masked="true_claim",
+                        tier="retrieval",
+                        score_type=s_type, score_local=s_local,
+                        score_vocab=vocab_score, score_readability=s_read,
+                    ))
 
             # Negative (false premise) — only when a good distractor exists
             if not source or dst_type not in _SUBSTITUTABLE_TYPES:
@@ -97,18 +99,20 @@ class YesNoQuestion(QuestionType):
             ]
             if not candidates:
                 continue
-            neg_text = build_yesno_question(src, relation, vt, candidates[0], self.lang, is_passive=is_p)
-            if neg_text and neg_text not in seen_texts:
-                seen_texts.add(neg_text)
-                questions.append(Question(
-                    text=neg_text, answer="No", answer_type=dst_type,
-                    difficulty="B1",
-                    lang=self.lang, source=source,
-                    is_passive=is_p, hop_count=1, masked="false_claim",
-                    answer_facts=[source],
-                    tier="retrieval",
-                    score_type=s_type, score_local=s_local,
-                    score_vocab=s_vocab, score_readability=s_read,
-                ))
+            result_neg = build_yesno_variant(src, relation, vt, candidates[0], self.lang, is_passive=is_p, is_false_claim=True, target_cefr=target_cefr)
+            if result_neg:
+                neg_text, vocab_score_neg = result_neg
+                if neg_text not in seen_texts:
+                    seen_texts.add(neg_text)
+                    questions.append(Question(
+                        text=neg_text, answer="No", answer_type=dst_type,
+                        difficulty=ctx.estimator.estimate(s_type, s_local, vocab_score_neg, s_read),
+                        lang=self.lang, source=source,
+                        is_passive=is_p, hop_count=1, masked="false_claim",
+                        answer_facts=[source],
+                        tier="retrieval",
+                        score_type=s_type, score_local=s_local,
+                        score_vocab=vocab_score_neg, score_readability=s_read,
+                    ))
 
         return questions

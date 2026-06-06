@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from question_generation.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_which_question
+from question_generation.templates import build_which_question, build_which_variant
 
 _TYPE_NOUNS = {
     "ORG": "organization", "PERSON": "person", "PER": "person",
@@ -16,7 +16,7 @@ _SKIP_VERB_BASES = {"become", "be"}
 class WhichQuestion(QuestionType):
     tier = "retrieval"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
         s_type = ctx.estimator.score_type("which")
@@ -65,20 +65,21 @@ class WhichQuestion(QuestionType):
                 obj_types = {otype for _, otype, _, _, _ in obj_list}
                 if len(obj_types) != 1:
                     continue
-                type_noun = _TYPE_NOUNS.get(obj_types.pop())
-                if not type_noun:
+                entity_type = obj_types.pop()
+                if entity_type not in _TYPE_NOUNS:
                     continue
                 for obj, otype, hint_prep, hint_val, source_text in obj_list:
-                    text = build_which_question(subj, verb_base, type_noun, hint_prep, hint_val, self.lang)
-                    if text:
+                    result = build_which_variant(subj, verb_base, entity_type, hint_prep, hint_val, self.lang, target_cefr)
+                    if result:
+                        text, vocab_score = result
                         q = Question(
                             text=text, answer=obj, answer_type=otype,
-                            difficulty=ctx.estimator.estimate(s_type, 0.1, s_vocab, s_read),
+                            difficulty=ctx.estimator.estimate(s_type, 0.1, vocab_score, s_read),
                             lang=self.lang, source=source_text,
                             is_passive=False, hop_count=1, masked="which",
                             tier="retrieval",
                             score_type=s_type, score_local=0.1,
-                            score_vocab=s_vocab, score_readability=s_read,
+                            score_vocab=vocab_score, score_readability=s_read,
                         )
                         questions.append(q)
         return questions

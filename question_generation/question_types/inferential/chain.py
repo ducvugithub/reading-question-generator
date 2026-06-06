@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from question_generation.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_chain_question
+from question_generation.templates import build_chain_question, build_chain_variant
 
 
 class ChainQuestion(QuestionType):
     tier = "inferential"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
         questions = []
@@ -35,25 +35,26 @@ class ChainQuestion(QuestionType):
                         source = data.get("source", "")
                         break
 
-                text = build_chain_question(
+                result = build_chain_variant(
                     anchor=anchor, rel1=rel1, bridge=bridge, rel2=rel2,
                     verb2_text=vt2, answer_type=target_type,
                     lang=self.lang, is_passive2=is_p2,
+                    target_cefr=target_cefr,
                 )
-                if text:
+                if result:
+                    text, vocab_score = result
                     triple = ctx.triple_index.get((bridge, rel2, target))
                     s_type = ctx.estimator.score_type("chain", hop_count=2)
                     s_local = ctx.estimator.score_local(triple) if triple else 0.15
-                    s_vocab = ctx.estimator.score_vocab(is_p2, "object")  # no chain bonus; s_type already captures multi-hop complexity
                     q = Question(
                         text=text, answer=target, answer_type=target_type,
-                        difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),
+                        difficulty=ctx.estimator.estimate(s_type, s_local, vocab_score, s_read),
                         lang=self.lang, source=source,
                         is_passive=is_p2, hop_count=2, masked="chain",
                         chain_path=f"{anchor} →[{rel1}]→ {bridge} →[{rel2}]→ {target}",
                         tier="inferential",
                         score_type=s_type, score_local=s_local,
-                        score_vocab=s_vocab, score_readability=s_read,
+                        score_vocab=vocab_score, score_readability=s_read,
                     )
                     questions.append(q)
         return questions

@@ -135,7 +135,7 @@ def build_markdown(text: str, lang: str, kg: KnowledgeGraph, questions: list) ->
     return "\n".join(lines)
 
 
-def run(input_path: Path, output_path: Path, max_questions: int) -> None:
+def run(input_path: Path, output_path: Path, max_questions: int, target_cefr: str = "B1") -> None:
     text = input_path.read_text(encoding="utf-8").strip()
     print(f"Input : {input_path} ({len(text.split())} words)")
 
@@ -151,10 +151,14 @@ def run(input_path: Path, output_path: Path, max_questions: int) -> None:
 
     print("Loading CEFR readability model…")
     cefr = CefrReadability()
-    print("Generating questions…")
+    passage_cefr = cefr.estimate(text)
+    print(f"Generating questions (target template CEFR: {target_cefr}, passage CEFR: {passage_cefr})…")
+    if target_cefr > passage_cefr:
+        print(f"  Note: Passage is {passage_cefr}, so {target_cefr} questions may not be possible.")
+        print(f"        Question difficulty is limited by passage complexity.")
     generator = QuestionGenerator(lang=lang, cefr_readability=cefr)
     limit = max_questions if max_questions > 0 else 10_000
-    questions = generator.generate(triples, kg, num_questions=limit, passage=text)
+    questions = generator.generate(triples, kg, num_questions=limit, passage=text, target_template_cefr=target_cefr)
     print(f"  {len(questions)} questions")
 
     for q in questions:
@@ -183,6 +187,10 @@ def main() -> None:
         "--max-questions", type=int, default=0,
         help="Max questions to generate (0 = no limit, default: 0)",
     )
+    parser.add_argument(
+        "--target-cefr", type=str, default="B1",
+        help="Target CEFR level for template difficulty (A1, A2, B1, B2, C1, C2; default: B1)",
+    )
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -190,7 +198,7 @@ def main() -> None:
         sys.exit(1)
 
     output = args.output or args.input.with_suffix(".md")
-    run(args.input, output, args.max_questions)
+    run(args.input, output, args.max_questions, args.target_cefr)
 
 
 if __name__ == "__main__":

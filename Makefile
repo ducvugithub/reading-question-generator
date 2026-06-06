@@ -13,7 +13,7 @@ download:
 	$(PYTHON) -c "import stanza; stanza.download('en'); stanza.download('fi')"
 
 script:
-	$(PYTHON) scripts/question_generation_script.py $(INPUT) $(if $(OUTPUT),--output $(OUTPUT),)
+	$(PYTHON) scripts/question_generation_script.py $(INPUT) $(if $(OUTPUT),--output $(OUTPUT),) $(if $(TARGET_CEFR),--target-cefr $(TARGET_CEFR),)
 
 app:
 	$(PYTHON) -m streamlit run scripts/question_generation_streamlit.py --server.fileWatcherType none

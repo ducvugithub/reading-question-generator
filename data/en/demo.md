@@ -1,8 +1,8 @@
 # Question Generation Report
 
-Generated: 2026-06-04 18:59  
+Generated: 2026-06-05 14:11  
 Language: **English**  
-Questions: **20**
+Questions: **5**
 
 ## Input Text
 
@@ -26,26 +26,11 @@ Nokia's headquarters moved from Espoo to Helsinki in 2023 as part of a broader r
 
 | Type | Difficulty | s_type | s_local | s_vocab | s_read | Question | Answer |
 |------|------------|--------|---------|---------|--------|----------|--------|
-| wh- | **A2** Pre-intermediate | 0.20 | 0.00 | 0.50 | 0.57 | When was Nokia founded? | 1865 |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.00 | 0.50 | 0.57 | By whom was Nokia founded? | Fredrik Idestam |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.00 | 0.50 | 0.57 | What was founded by Fredrik Idestam? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.11 | 0.00 | 0.57 | When did Nokia merge? | 1967 |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.11 | 0.00 | 0.57 | What did Nokia merge? | Finnish Rubber Works |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.11 | 0.00 | 0.57 | What merged Finnish Rubber Works? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.28 | 0.00 | 0.57 | What merged Finnish Cable Works? | Nokia |
-| list | **A2** Pre-intermediate | 0.30 | 0.11 | 0.00 | 0.57 | What organizations did Nokia acquire? | Mobira / Alcatel - Lucent |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.11 | 0.00 | 0.57 | What acquired Mobira? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.11 | 0.00 | 0.57 | When did Nokia acquire? | 1982 |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.22 | 0.00 | 0.57 | What acquired Alcatel - Lucent? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.22 | 0.00 | 0.57 | What did Nokia partner? | Siemens |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.22 | 0.00 | 0.57 | What partnered Siemens? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.22 | 0.00 | 0.57 | When did Nokia partner? | 2007 |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.17 | 0.00 | 0.57 | What did Idestam establish? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.17 | 0.00 | 0.57 | What established Nokia? | Idestam |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.17 | 0.00 | 0.57 | When did Jorma Ollila transform? | 1998 |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.17 | 0.00 | 0.57 | What did Microsoft acquire? | Nokia |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.17 | 0.00 | 0.57 | What acquired Nokia? | Microsoft |
-| wh- | **A2** Pre-intermediate | 0.20 | 0.00 | 0.50 | 0.57 | When was The Nokia Research Center established? | 1986 |
+| bridge | **C1** Advanced | 0.30 | 0.50 | 0.00 | 0.57 | Which organization did Idestam establish that merged with Finnish Rubber Works? | Nokia |
+| bridge | **C1** Advanced | 0.30 | 0.50 | 0.00 | 0.57 | Which organization did Jorma Ollila lead that merged with Finnish Rubber Works? | Nokia |
+| bridge | **C1** Advanced | 0.30 | 0.50 | 0.00 | 0.57 | Which organization did Microsoft acquire that merged with Finnish Rubber Works? | Nokia |
+| wh- | **B1** Intermediate | 0.20 | 0.00 | 0.70 | 0.57 | When was Nokia founded? | 1865 |
+| wh- | **B1** Intermediate | 0.20 | 0.00 | 0.70 | 0.57 | By whom was Nokia founded? | Fredrik Idestam |
 
 ## Knowledge Graph
 

@@ -17,7 +17,7 @@ _EVENT_LOCAL = {1: 0.0, 2: 0.5}
 class SubgraphQuestion(QuestionType):
     tier = "inferential"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
         s_type = ctx.estimator.score_type("subgraph")
@@ -45,8 +45,11 @@ class SubgraphQuestion(QuestionType):
             if not (1 <= len(events) <= 2):
                 continue
             anchor_type = kg.entity_type(anchor)
-            text = build_anchor_question(anchor, anchor_type, self.lang)
-            if not text or text in seen_texts:
+            result = build_anchor_question(anchor, anchor_type, self.lang, target_cefr)
+            if not result:
+                continue
+            text, vocab_score = result
+            if text in seen_texts:
                 continue
             seen_texts.add(text)
             n = len(events)
@@ -56,7 +59,7 @@ class SubgraphQuestion(QuestionType):
                 is_passive=False, hop_count=1, masked="subgraph",
                 answer_facts=events, tier="retrieval" if n == 1 else "inferential",
                 score_type=s_type, score_local=_EVENT_LOCAL[n],
-                score_vocab=s_vocab, score_readability=s_read,
+                score_vocab=vocab_score, score_readability=s_read,
             ))
 
         # ── Paired-anchor: subject anchor + object anchor ─────────────────────
@@ -82,8 +85,11 @@ class SubgraphQuestion(QuestionType):
             if not (1 <= len(events) <= 2):
                 continue
             subj_type, obj_type = pair_types[(subj, obj)]
-            text = build_multi_anchor_question(subj, subj_type, obj, obj_type, self.lang)
-            if not text or text in seen_texts:
+            result = build_multi_anchor_question(subj, subj_type, obj, obj_type, self.lang, target_cefr)
+            if not result:
+                continue
+            text, vocab_score = result
+            if text in seen_texts:
                 continue
             seen_texts.add(text)
             n = len(events)
@@ -93,7 +99,7 @@ class SubgraphQuestion(QuestionType):
                 is_passive=False, hop_count=1, masked="subgraph",
                 answer_facts=events, tier="retrieval" if n == 1 else "inferential",
                 score_type=s_type, score_local=_EVENT_LOCAL[n],
-                score_vocab=s_vocab, score_readability=s_read,
+                score_vocab=vocab_score, score_readability=s_read,
             ))
 
         return questions

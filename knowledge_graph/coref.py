@@ -78,6 +78,7 @@ def resolve_coreferences(triples: list[Triple], lang: str = "en") -> list[Triple
             verb_text=t.verb_text,
             is_passive=t.is_passive,
             object_surface=t.object_surface,
+            object_case=t.object_case,
             sentence_idx=t.sentence_idx,
             coref_distance=max(subj_coref, obj_coref),
             source_depth=t.source_depth,

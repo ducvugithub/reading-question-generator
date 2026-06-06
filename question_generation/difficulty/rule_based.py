@@ -15,9 +15,9 @@ _TYPE_SCORE: dict[str, float] = {
     "which":          0.25,
     "aggregation":    0.37,
     "count":          0.25,
-    "subgraph":       0.27,
-    "chain_subgraph": 0.35,
-    "chain":          0.30,
+    "subgraph":       0.30,
+    "chain_subgraph": 0.40,
+    "chain":          0.35,
     "bridge":         0.30,
 }
 

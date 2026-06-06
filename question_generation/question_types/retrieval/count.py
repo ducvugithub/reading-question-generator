@@ -4,13 +4,13 @@ from collections import defaultdict
 
 from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
 from question_generation.models import Question
-from question_generation.templates import build_count_question, TYPE_NOUNS_PLURAL
+from question_generation.templates import build_count_question, build_count_variant, TYPE_NOUNS_PLURAL
 
 
 class CountQuestion(QuestionType):
     tier = "retrieval"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         kg = ctx.kg
         s_read = ctx.estimator.score_readability(ctx.passage)
         s_type = ctx.estimator.score_type("count")
@@ -29,22 +29,22 @@ class CountQuestion(QuestionType):
         for (subject, relation, dst_type), objs in groups.items():
             if len(objs) < 2:
                 continue
-            type_plural = TYPE_NOUNS_PLURAL.get(dst_type)
-            if not type_plural:
+            if dst_type not in TYPE_NOUNS_PLURAL:
                 continue
-            text = build_count_question(subject, relation, type_plural, self.lang)
-            if not text:
+            result = build_count_variant(subject, relation, dst_type, self.lang, target_cefr)
+            if not result:
                 continue
+            text, vocab_score = result
             triple = ctx.triple_index.get((subject, relation, objs[0]))
             s_local = ctx.estimator.score_local(triple) if triple else 0.1
             q = Question(
                 text=text, answer=str(len(objs)), answer_type="CARDINAL",
-                difficulty=ctx.estimator.estimate(s_type, s_local, s_vocab, s_read),
+                difficulty=ctx.estimator.estimate(s_type, s_local, vocab_score, s_read),
                 lang=self.lang, source="",
                 is_passive=False, hop_count=1, masked="count",
                 tier="retrieval",
                 score_type=s_type, score_local=s_local,
-                score_vocab=s_vocab, score_readability=s_read,
+                score_vocab=vocab_score, score_readability=s_read,
             )
             questions.append(q)
         return questions

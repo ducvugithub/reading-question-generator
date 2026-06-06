@@ -24,6 +24,7 @@ class GenerationContext:
     passive_index: dict
     surface_index: dict
     triple_index: dict
+    case_index: dict                                          # (subject, relation, object) → object_case
     passage: str
     lang: str
     estimator: "DifficultyEstimator"

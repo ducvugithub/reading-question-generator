@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from question_generation.difficulty.base import LEVEL_ORDER, LEVELS
+from question_generation.difficulty.base import LEVEL_ORDER, LEVELS, _level
 
 _MODEL_ID = "AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2"
 _LEVEL_MAX = len(LEVELS) - 1  # 7
@@ -30,3 +30,7 @@ class CefrReadability:
             idx = LEVEL_ORDER.get(label, 0)  # 0–7 on our scale
             self._cache[passage] = idx / _LEVEL_MAX
         return self._cache[passage]
+
+    def estimate(self, passage: str) -> str:
+        """Estimate passage difficulty as a CEFR level string (A1-C2+)."""
+        return _level(self.score(passage))

@@ -15,7 +15,7 @@ _OBJ_PREP = {"DATE": "in", "TIME": "in", "GPE": "in", "LOC": "at", "FAC": "at"}
 class ChainSubgraphQuestion(QuestionType):
     tier = "inferential"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         if self.lang != "en":
             return []
 

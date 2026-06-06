@@ -23,7 +23,7 @@ class BridgeQuestion(QuestionType):
     """'Which organization did Nokia acquire that became Nokia Mobile Phones?' → Mobira"""
     tier = "inferential"
 
-    def generate(self, ctx: GenerationContext) -> list[Question]:
+    def generate(self, ctx: GenerationContext, target_cefr: str = "B1") -> list[Question]:
         if self.lang != "en":
             return []
 

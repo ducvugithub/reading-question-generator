@@ -22,6 +22,7 @@ class Triple:
     verb_text: str = ""       # original inflected verb surface form (e.g. "founded", "perustettiin")
     is_passive: bool = False  # True when Voice=Pass in verb feats or nsubj:pass subject
     object_surface: str = ""  # original case-inflected surface form of object (Finnish: "Varsovassa")
+    object_case: str = ""     # morphological case of object (Finnish: Nominative, Genitive, Inessive, etc.)
     sentence_idx: int = 0     # 0-based index of source sentence in document
     coref_distance: int = 0   # sentence distance between pronoun and its antecedent (0 = no coref)
     source_depth: int = 0     # number of clausal dependency relations in source sentence
@@ -116,6 +117,8 @@ def _extract_sentence(
                 resolved = _resolve_postposition(obj_word, words_by_id, entity_map)
                 obj_text, obj_type = _resolve_mention(resolved, entity_map)
                 relation = _relation_label(verb, obj_word, deprel, words_by_id)
+                feats = _extract_feats(resolved)
+                obj_case = feats.get("Case", "")
                 triples.append(Triple(
                     subject=subj_text, subject_type=subj_type,
                     relation=relation,
@@ -124,6 +127,7 @@ def _extract_sentence(
                     verb_text=verb.text,
                     is_passive=is_passive,
                     object_surface=surface_map.get(resolved.id, ""),
+                    object_case=obj_case,
                     sentence_idx=sentence_idx,
                     source_depth=source_depth,
                     answer_depth=_dep_depth(resolved, words_by_id),
@@ -240,6 +244,8 @@ def _extract_copula(sentence, entity_map: dict, words_by_id: dict,
 
         subj_text, subj_type = _resolve_mention(subject, entity_map)
         pred_text, pred_type = _resolve_mention(head, entity_map)
+        head_feats = _extract_feats(head)
+        head_case = head_feats.get("Case", "")
         triples.append(Triple(
             subject=subj_text, subject_type=subj_type,
             relation="be",
@@ -247,6 +253,7 @@ def _extract_copula(sentence, entity_map: dict, words_by_id: dict,
             source=sentence.text,
             sentence_idx=sentence_idx,
             source_depth=source_depth,
+            object_case=head_case,
             answer_depth=_dep_depth(head, words_by_id),
         ))
 
@@ -255,6 +262,8 @@ def _extract_copula(sentence, entity_map: dict, words_by_id: dict,
             if nmod.head == head_id and nmod.deprel in ("nmod", "nmod:poss"):
                 case = _find_case(nmod, words_by_id)
                 nmod_text, nmod_type = _resolve_mention(nmod, entity_map)
+                nmod_feats = _extract_feats(nmod)
+                nmod_case = nmod_feats.get("Case", "")
                 triples.append(Triple(
                     subject=subj_text, subject_type=subj_type,
                     relation=f"be_{case}" if case else "be_of",
@@ -262,6 +271,7 @@ def _extract_copula(sentence, entity_map: dict, words_by_id: dict,
                     source=sentence.text,
                     sentence_idx=sentence_idx,
                     source_depth=source_depth,
+                    object_case=nmod_case,
                     answer_depth=_dep_depth(nmod, words_by_id),
                 ))
 
@@ -295,6 +305,18 @@ def _relation_label(verb, obj_word, deprel: str, words_by_id: dict) -> str:
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
+
+def _extract_feats(word) -> dict[str, str]:
+    """Parse word.feats string into a dict. E.g., "Case=Inessive|Number=Singular" → {"Case": "Inessive", "Number": "Singular"}."""
+    if not word.feats:
+        return {}
+    features: dict[str, str] = {}
+    for feat_pair in word.feats.split("|"):
+        if "=" in feat_pair:
+            key, value = feat_pair.split("=", 1)
+            features[key] = value
+    return features
+
 
 def _find_case(word, words_by_id: dict) -> Optional[str]:
     for w in words_by_id.values():

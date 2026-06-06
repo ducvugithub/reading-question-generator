@@ -17,6 +17,7 @@ class QuestionGenerator:
         self, triples: list[Triple], kg: KnowledgeGraph,
         num_questions: int = 10, passage: str = "",
         min_level: str = "preA1", max_level: str = "C2+",
+        target_template_cefr: str = "B1",
     ) -> list:
         ctx = GenerationContext(
             kg=kg,
@@ -24,6 +25,7 @@ class QuestionGenerator:
             passive_index=_build_passive_index(triples),
             surface_index=_build_surface_index(triples),
             triple_index=_build_triple_index(triples),
+            case_index=_build_case_index(triples),
             passage=passage,
             lang=self.lang,
             estimator=self._estimator,
@@ -37,7 +39,8 @@ class QuestionGenerator:
         seen: set[str] = set()
         questions = []
         for handler in self._handlers:
-            for q in handler.generate(ctx):
+            gen = handler.generate(ctx, target_template_cefr)
+            for q in gen:
                 if q.text not in seen:
                     if min_ord <= LEVEL_ORDER.get(q.difficulty, 0) <= max_ord:
                         questions.append(q)
@@ -64,3 +67,8 @@ def _build_triple_index(triples: list[Triple]) -> dict:
     for t in triples:
         index.setdefault((t.subject, t.relation, t.object), t)
     return index
+
+
+def _build_case_index(triples: list[Triple]) -> dict:
+    """Map (subject, relation, object) → object_case for morphological information."""
+    return {(t.subject, t.relation, t.object): t.object_case for t in triples if t.object_case}

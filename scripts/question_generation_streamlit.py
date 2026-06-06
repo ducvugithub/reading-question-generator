@@ -86,137 +86,231 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# st.title("Knowledge Graph Question Generator")
+# ── State initialization ───────────────────────────────────────────────────────
 
-already_built = "kg" in st.session_state
-is_processing = st.session_state.get("processing", False)
+analyzed = st.session_state.get("analyzed", False)
+is_analyzing = st.session_state.get("is_analyzing", False)
+is_generating = st.session_state.get("is_generating", False)
 
 col_left, col_right = st.columns(2, gap="large")
 
 # ── Left: input + controls ────────────────────────────────────────────────────
 
 with col_left:
-    raw_text = ""
+    st.markdown("### 📝 Input Text")
 
-    if not already_built:
-        tab_paste, tab_upload = st.tabs(["✏️ Paste text", "📄 Upload .txt"])
-        with tab_paste:
-            pasted = st.text_area(
-                "text_input",
-                height=220,
-                placeholder="Paste an English or Finnish passage…",
-                label_visibility="collapsed",
-                disabled=is_processing,
-            )
-            if pasted.strip():
-                raw_text = pasted
-        with tab_upload:
-            uploaded = st.file_uploader("upload", type=["txt"], label_visibility="collapsed",
-                                        disabled=is_processing)
-            if uploaded:
-                raw_text = uploaded.read().decode("utf-8")
-                st.text_area("preview", raw_text, height=160, disabled=True, label_visibility="collapsed")
-    else:
-        raw_text = st.session_state.raw_text
-        st.text_area("locked_text", value=raw_text, disabled=True, height=220, label_visibility="collapsed")
+    tab_paste, tab_upload = st.tabs(["✏️ Paste text", "📄 Upload .txt"])
+    raw_text = st.session_state.get("app_text", "")
+
+    with tab_paste:
+        pasted = st.text_area(
+            "text_input",
+            height=220,
+            placeholder="Paste an English or Finnish passage…",
+            label_visibility="collapsed",
+            disabled=is_analyzing or is_generating,
+            value=raw_text,
+            key="paste_textarea",
+        )
+        if pasted:
+            st.session_state["app_text"] = pasted
+            raw_text = pasted
+
+    with tab_upload:
+        uploaded = st.file_uploader("upload", type=["txt"], label_visibility="collapsed",
+                                    disabled=is_analyzing or is_generating, key="upload_file")
+        if uploaded:
+            content = uploaded.read().decode("utf-8")
+            st.session_state["app_text"] = content
+            raw_text = content
+            st.text_area("preview", content, height=160, disabled=True, label_visibility="collapsed")
 
     st.divider()
 
-    max_diff = st.select_slider(
-        "Max difficulty",
-        options=LEVELS,
-        value="B2",
-        format_func=_DIFF_LABEL.get,
-        disabled=is_processing,
-    )
-    num_q = st.number_input("Number of questions", min_value=1, value=10, step=1,
-                            disabled=is_processing)
+    # ── Step 1: Analyze ────────────────────────────────────────────────────────
 
-    btn_left, btn_right = st.columns(2)
-    with btn_left:
-        generate = st.button(
-            "▶ Generate",
-            type="primary",
-            disabled=is_processing or not (already_built or bool(raw_text.strip())),
+    st.markdown("### 🔍 Step 1: Analyze Text")
+
+    # Debug info
+    text_len = len(raw_text.strip()) if raw_text else 0
+    st.caption(f"📊 Text ready: {text_len} characters")
+
+    btn_col1, btn_col2 = st.columns([3, 1])
+    with btn_col1:
+        can_analyze = not (is_analyzing or is_generating) and text_len >= 50
+        analyze_btn = st.button(
+            "Analyze" if can_analyze else f"Analyze (need {max(0, 50 - text_len)} more chars)",
+            type="primary" if can_analyze else "secondary",
+            disabled=not can_analyze,
             use_container_width=True,
         )
-    with btn_right:
-        if already_built and st.button("✕ Reset", use_container_width=True,
-                                       disabled=is_processing):
+    with btn_col2:
+        if st.button("✕ Reset", disabled=is_analyzing or is_generating, use_container_width=True):
             st.session_state.clear()
             st.rerun()
+
+    if analyze_btn and raw_text:
+        st.session_state["_pending_text"] = raw_text
+        st.session_state["is_analyzing"] = True
+        st.rerun()
+
+    # ── Step 2: Generate (only after analysis) ────────────────────────────────
+
+    if analyzed:
+        st.divider()
+        st.markdown("### ⚙️ Step 2: Generate Questions")
+
+        passage_cefr = st.session_state.get("passage_cefr", "B1")
+        passage_cefr_idx = LEVEL_ORDER.get(passage_cefr, 3)
+        available_levels = LEVELS[:passage_cefr_idx + 1]
+
+        # Ensure slider value is within available levels
+        slider_value = passage_cefr if passage_cefr in available_levels else available_levels[-1]
+
+        max_diff = st.select_slider(
+            "Max difficulty",
+            options=available_levels,
+            value=slider_value,
+            format_func=_DIFF_LABEL.get,
+            disabled=is_generating,
+        )
+
+        num_col, gen_col = st.columns([1.5, 1], gap="medium")
+
+        with num_col:
+            num_q = st.number_input(
+                "Number of questions",
+                min_value=1,
+                max_value=100,
+                value=10,
+                step=1,
+                disabled=is_generating,
+            )
+
+        with gen_col:
+            st.markdown("<div style='margin-top: 0.5rem'></div>", unsafe_allow_html=True)
+            gen_btn = st.button(
+                "Generate Questions",
+                type="primary",
+                disabled=is_generating,
+                use_container_width=True,
+            )
+
+        if gen_btn:
+            st.session_state["max_diff"] = max_diff
+            st.session_state["num_q"] = num_q
+            st.session_state["is_generating"] = True
+            st.rerun()
+
 
 # ── Right: results ────────────────────────────────────────────────────────────
 
 with col_right:
-    if generate:
-        # Save text across the rerun, flip flag, rerun to render disabled buttons
-        if not already_built:
-            st.session_state["_pending_text"] = raw_text
-        st.session_state["processing"] = True
-        st.rerun()
+    # Process analysis
+    if is_analyzing:
+        pending_text = st.session_state.pop("_pending_text", "")
 
-    if is_processing:
-        if not already_built:
-            pending_text = st.session_state.pop("_pending_text", "")
-            try:
-                detected = detect(pending_text)
-            except LangDetectException:
-                detected = "en"
-            lang = detected if detected in _SUPPORTED else "en"
+        try:
+            detected = detect(pending_text)
+        except LangDetectException:
+            detected = "en"
+        lang = detected if detected in _SUPPORTED else "en"
 
-            with st.spinner("Building knowledge graph…"):
-                triples = resolve_coreferences(
-                    _extractor(lang).extract(pending_text), lang=lang
-                )
-                kg = KnowledgeGraph()
-                kg.add_triples(triples)
-            st.session_state.update(raw_text=pending_text, lang=lang, triples=triples, kg=kg)
-
-        lang = st.session_state.lang
-        with st.spinner("Generating questions…"):
-            all_qs = _generator(lang).generate(
-                st.session_state.triples, st.session_state.kg,
-                num_questions=100, passage=st.session_state.raw_text,
+        with st.spinner("🔍 Analyzing text…"):
+            triples = resolve_coreferences(
+                _extractor(lang).extract(pending_text), lang=lang
             )
-            st.session_state["questions"] = [
-                q for q in all_qs
-                if LEVEL_ORDER.get(q.difficulty, 0) <= LEVEL_ORDER.get(max_diff, 7)
-            ][:int(num_q)]
+            kg = KnowledgeGraph()
+            kg.add_triples(triples)
+            passage_cefr = _cefr_readability().estimate(pending_text)
 
-        st.session_state["processing"] = False
+        st.session_state.update(
+            raw_text=pending_text,
+            lang=lang,
+            triples=triples,
+            kg=kg,
+            passage_cefr=passage_cefr,
+            analyzed=True,
+            is_analyzing=False,
+        )
         st.rerun()
 
-    # ── Info bar ──────────────────────────────────────────────────────────────
+    # Show analysis results
+    if analyzed:
+        lang = st.session_state.get("lang", "en")
+        kg = st.session_state.get("kg")
+        passage_cefr = st.session_state.get("passage_cefr", "B1")
 
-    if already_built:
-        lang = st.session_state.lang
-        kg = st.session_state.kg
-        n_nodes = kg._g.number_of_nodes()
-        n_edges = kg._g.number_of_edges()
-        st.caption(
-            f"Language: **{_SUPPORTED[lang]}** · Graph: **{n_nodes}** nodes · **{n_edges}** edges"
-        )
+        st.markdown("### 📊 Analysis Results")
 
-        with st.expander("Knowledge graph"):
-            c_nodes, c_edges = st.columns(2)
-            with c_nodes:
-                st.markdown("**Nodes**")
-                for node, data in kg.nodes:
-                    etype = data.get("entity_type") or "—"
-                    st.markdown(f"- `{node}` [{etype}]")
-            with c_edges:
-                st.markdown("**Edges**")
-                for src, dst, data in kg.edges:
-                    st.markdown(f"- `{src}` → **{data['relation']}** → `{dst}`")
+        # Info card
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Language", _SUPPORTED.get(lang, "Unknown"))
+        with col2:
+            st.metric("Passage Level", f"**{passage_cefr}**")
+        with col3:
+            if kg:
+                st.metric("Graph Size", f"{kg._g.number_of_nodes()} nodes")
 
-    # ── Questions ─────────────────────────────────────────────────────────────
+        if kg:
+            st.caption(f"**{kg._g.number_of_nodes()}** nodes · **{kg._g.number_of_edges()}** edges")
 
+            with st.expander("📈 Show Knowledge Graph"):
+                c_nodes, c_edges = st.columns(2)
+                with c_nodes:
+                    st.markdown("**Nodes**")
+                    for node, data in kg.nodes:
+                        etype = data.get("entity_type") or "—"
+                        st.markdown(f"- `{node}` [{etype}]")
+                with c_edges:
+                    st.markdown("**Edges**")
+                    for src, dst, data in kg.edges:
+                        st.markdown(f"- `{src}` → **{data['relation']}** → `{dst}`")
+
+        st.divider()
+
+    # Process generation
+    if is_generating:
+        lang = st.session_state.get("lang", "en")
+        triples = st.session_state.get("triples", [])
+        kg = st.session_state.get("kg")
+        passage = st.session_state.get("raw_text", "")
+        max_diff = st.session_state.get("max_diff", "B1")
+        num_q = st.session_state.get("num_q", 10)
+
+        with st.spinner("⚙️ Generating questions…"):
+            all_qs = _generator(lang).generate(
+                triples, kg,
+                num_questions=100,
+                passage=passage,
+                target_template_cefr=max_diff,
+            )
+
+        # Filter by max difficulty
+        passage_cefr = st.session_state.get("passage_cefr", "B1")
+        if max_diff > passage_cefr:
+            st.warning(
+                f"📝 **Passage is {passage_cefr} level**, but you requested {max_diff} questions. "
+                f"Question difficulty is limited by passage complexity."
+            )
+
+        questions = [
+            q for q in all_qs
+            if LEVEL_ORDER.get(q.difficulty, 0) <= LEVEL_ORDER.get(max_diff, 7)
+        ][:num_q]
+
+        st.session_state["questions"] = questions
+        st.session_state["is_generating"] = False
+        st.rerun()
+
+    # Display questions
     if "questions" in st.session_state:
-        questions = st.session_state.questions
-        st.subheader(f"{len(questions)} questions")
+        questions = st.session_state["questions"]
 
-        for q in questions:
+        st.markdown(f"### ❓ Questions ({len(questions)})")
+
+        for i, q in enumerate(questions, 1):
             colour = _DIFF_COLOR.get(q.difficulty, "gray")
             if q.answer_facts:
                 answer_display = q.answer_facts[0] if len(q.answer_facts) == 1 else f"({len(q.answer_facts)} events)"
@@ -224,19 +318,20 @@ with col_right:
                 answer_display = " / ".join(q.answer_list)
             else:
                 answer_display = q.answer
+
             st.markdown(
-                f":{colour}[**{q.difficulty}**] {q.text} "
-                f"<sub>&nbsp;→&nbsp;<b>{answer_display}</b> &nbsp;·&nbsp; {q.answer_type or '—'}</sub>",
+                f"**{i}.** :{colour}[{q.difficulty}] {q.text}  \n"
+                f"<sub>→ **{answer_display}** · {q.answer_type or '—'}</sub>",
                 unsafe_allow_html=True,
             )
 
             if q.answer_facts or q.chain_path or q.source:
-                with st.expander("📍 Source"):
+                with st.expander("📍 Details"):
                     if q.chain_path:
                         st.markdown(_chain_html(q.chain_path), unsafe_allow_html=True)
                     if q.answer_facts:
-                        for i, fact in enumerate(q.answer_facts, 1):
-                            st.markdown(f"{i}. {fact}")
+                        for j, fact in enumerate(q.answer_facts, 1):
+                            st.markdown(f"{j}. {fact}")
                     elif q.source:
                         st.markdown(_source_html(q.source, q.answer), unsafe_allow_html=True)
 
