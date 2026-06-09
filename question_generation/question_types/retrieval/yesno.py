@@ -47,6 +47,9 @@ class YesNoQuestion(QuestionType):
             relation = data["relation"]
             if relation.split("_")[0] in SKIP_VERB_BASES:
                 continue
+            # Skip passive relations (ending with _by) - active voice templates don't work with past participles
+            if relation.endswith("_by"):
+                continue
             parts = relation.split("_", 1)
             has_prep = len(parts) > 1
             prep = parts[1] if has_prep else None

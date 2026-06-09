@@ -19,6 +19,9 @@ stanza_resources/
 # Generated outputs
 data/output/
 
+# Word frequency files
+data/*/vocab/
+
 # OS
 .DS_Store
 Thumbs.db

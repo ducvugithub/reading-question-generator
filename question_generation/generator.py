@@ -18,6 +18,7 @@ class QuestionGenerator:
         num_questions: int = 10, passage: str = "",
         min_level: str = "preA1", max_level: str = "C2+",
         target_template_cefr: str = "B1",
+        create_variants: bool = False,
     ) -> list:
         ctx = GenerationContext(
             kg=kg,
@@ -47,6 +48,14 @@ class QuestionGenerator:
                     seen.add(q.text)
 
         questions.sort(key=lambda q: LEVEL_ORDER.get(q.difficulty, 0), reverse=True)
+
+        # Create variants if requested
+        if create_variants:
+            from question_generation.variant_processor import expand_questions_with_variants
+            questions = expand_questions_with_variants(questions, lang=self.lang)
+            # Re-sort after adding variants
+            questions.sort(key=lambda q: LEVEL_ORDER.get(q.difficulty, 0), reverse=True)
+
         return questions[:num_questions]
 
 

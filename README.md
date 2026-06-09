@@ -1,40 +1,58 @@
-# Knowledge Graph Question Generation
+# Knowledge Graph Question Generation with Difficulty Variants
 
-Generate CEFR-levelled questions from English or Finnish text passages. The pipeline extracts a knowledge graph, generates questions from graph structure, and estimates difficulty along two independent axes.
+Generate CEFR-levelled questions from English or Finnish text passages. The pipeline extracts a knowledge graph, generates questions, estimates difficulty, and creates **difficulty variants** by replacing verbs with semantically similar synonyms at different CEFR levels using Word2Vec.
 
 ## Quick Start
 
 ```bash
-# CLI report
-make script INPUT=data/en/demo.txt OUTPUT=data/output/report.md
+# Generate questions with difficulty variants
+make questions INPUT=data/en/microsoft.txt TARGET_CEFR=C1
 
-# Interactive UI
-make streamlit
+# Specify output file
+make questions INPUT=data/en/microsoft.txt OUTPUT=my_report.md TARGET_CEFR=B1
+
+# Print to terminal (verbose)
+make questions INPUT=data/en/microsoft.txt VERBOSE=1
+
+# Interactive UI (legacy)
+make app
 ```
 
 ---
 
-## Architecture
+## Complete Pipeline
 
 ```
-Input passage
-      ↓
-[1] NER + dependency parsing → Triple objects  (knowledge_graph/extractor.py)
-      ↓
-[2] Heuristic coreference resolution           (knowledge_graph/coref.py)
-      ↓
-[3] Build directed graph (nodes=entities, edges=relations)  (knowledge_graph/graph.py)
-      ↓
-[4] Generate candidate questions per type      (question_generation/generator.py)
-      ↓
-[5] Estimate difficulty (text-side + question-side)  (question_generation/difficulty/)
-      ↓
-Output: questions with text_difficulty, question_difficulty on preA1–C2+ scale
+INPUT: Text passage
+   ↓
+[PHASE 1: KNOWLEDGE GRAPH EXTRACTION]
+   ├─ [1] NER + dependency parsing → Triple objects
+   ├─ [2] Heuristic coreference resolution  
+   └─ [3] Build directed graph (nodes=entities, edges=relations)
+   ↓
+[PHASE 2: QUESTION GENERATION & SCORING]
+   ├─ [4] Generate candidates across 3 tiers:
+   │    ├─ Retrieval tier: single-hop single-node & subgraph candidates
+   │    ├─ Inferential tier: multi-hop chain single-node & subgraph candidates
+   │    └─ Critical tier: complex reasoning single-node & subgraph candidates (TBD)
+   │    Then: Filter by difficulty → Deduplicate → Sort by difficulty
+   └─ [5] Estimate difficulty (text-side + question-side)
+   ↓
+[PHASE 3: DIFFICULTY VARIANTS]
+   ├─ [6a] Extract main verb from question
+   ├─ [6b] Lemmatize verb → base form (e.g., "founded" → "find")
+   ├─ [6c] Look up lemma frequency (wordfreq or local vocab)
+   ├─ [6d] CEFR classification via percentile bins (A1=30%, A2=25%, B1=20%, B2=15%, C1=7%, C2=3%)
+   ├─ [6e] Find Word2Vec synonym at target CEFR level
+   ├─ [6f] Replace verb while preserving sentence structure
+   └─ [6g] Deduplicate (skip if text unchanged)
+   ↓
+OUTPUT: Questions with variants at A1–C2 levels
 ```
 
 ---
 
-## Step 1 — Text → Knowledge Graph
+## Phase 1 — Knowledge Graph Extraction
 
 ### NER + Relation Extraction
 
@@ -67,7 +85,7 @@ Heuristic resolution tracks sentence indices. Sets `coref_distance = sentence_id
 
 ---
 
-## Step 2 — Question Generation
+## Phase 2 — Question Generation & Scoring
 
 Questions are organised into two categories based on how they are constructed from the knowledge graph.
 
@@ -125,42 +143,60 @@ Templates are in `question_generation/templates.py`. Finnish is supported for Ca
 
 ---
 
-## Step 3 — Difficulty Estimation
+### Difficulty Estimation
 
-### Two-Axis Model
+#### Four-Component Scoring Model
 
-Each question gets two independent CEFR-level estimates:
-
-- **Text-side difficulty** — how hard is it to find / parse the answer in the source passage?
-- **Question-side difficulty** — how complex is the question form itself?
-
-Both axes use an 8-level scale: `preA1 · A1 · A2 · B1 · B2 · C1 · C2 · C2+`
-
-### Text-Side: Three Independent Dimensions
-
-Text-side difficulty combines three components, each normalised to [0, 1]:
+Overall difficulty combines four independent components, each normalised to [0, 1]:
 
 ```
-text_score = 0.50 × local + 0.25 × readability + 0.25 × distractor
+combined = (score_type + score_local + score_vocab + score_readability) / 4
 ```
 
-#### 1. Local Extraction (weight 0.50)
+This simple average is then mapped to the 8-level CEFR scale (preA1 → C2+).
 
-How hard it is to locate and parse the answer within its sentence.
+##### Component 1: Question Form Complexity (score_type)
 
-| Signal | Description | Max raw |
-|---|---|---|
-| Hop count | 1-hop=0, 2-hop=6, 3-hop=12, 4-hop=18 | 18 |
-| Source clause depth | Clausal embeddings (`relcl`, `advcl`, …) | 3 |
-| Answer tree depth | Dependency depth of the answer token | 2 |
-| Passive voice | Passive construction extraction | 2 |
-| Coreference distance | Sentences between pronoun and antecedent | 3 |
+How complex the question form is itself:
 
-**Total max = 28.** Normalised: `local = raw_sum / 28`
+| Question type | Score |
+|---|---|
+| yes/no | 0.0 (simplest) |
+| wh- questions | 0.2–0.4 |
+| which/comparison | 0.4 |
+| aggregation | 0.5 |
+| chain (multi-hop) | 0.6 (hardest) |
 
-#### 2. Global Readability — LIX (weight 0.25)
+##### Component 2: Answer Extraction Difficulty (score_local)
 
-How hard the passage is overall to read, using the LIX (Läsbarhetsindex) formula. LIX is language-agnostic and works for both English and Finnish (unlike Flesch-Kincaid, which is calibrated to English syllable patterns).
+How hard it is to locate and parse the answer within the knowledge graph and sentence:
+
+| Signal | Normalisation |
+|---|---|
+| Source clause depth | Clausal embeddings (`relcl`, `advcl`, …): depth ≤ 3 |
+| Answer tree depth | Dependency depth of answer token: depth ≤ 2 |
+| Coreference distance | Sentences between pronoun and antecedent: distance ≤ 3 |
+
+**Formula:** `score_local = (depth + answer + coref) / 3`
+
+##### Component 3: Question Phrasing Complexity (score_vocab)
+
+How complex the question phrasing is:
+
+| Feature | Score |
+|---|---|
+| Passive voice construction | +0.5 |
+| Nominalization (chain uses noun phrase) | +0.5 |
+| **Max:** | 1.0 |
+
+##### Component 4: Passage Readability (score_readability)
+
+How hard the passage is overall to read, using a **finetuned BERT model** for CEFR classification:
+
+- **Primary method:** [`AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2`](https://huggingface.co/AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2) (HuggingFace transformer-based CEFR classifier, when available)
+- **Fallback method:** LIX (Läsbarhetsindex) formula for unknown languages
+
+**Fallback formula (LIX):**
 
 ```
 LIX = words/sentences + long_words×100/words
@@ -180,56 +216,71 @@ readability = clamp((LIX − 20) / 45, 0, 1)
 | 50–60 | Academic / technical |
 | 60+ | Legal / scientific |
 
-#### 3. Distractor Density (weight 0.25)
+#### CEFR Level Thresholds
 
-How many plausible competing answers exist in the knowledge graph, making it harder to select the right one.
-
-Same-type entities of the answer node reachable in the KG, weighted by graph distance using exponential decay:
-
-```
-weight = 0.5 ^ distance        (dist=1: 0.5,  dist=2: 0.25,  dist=3: 0.125 …)
-raw    = sum of weights within 6 hops
-distractor = raw / (1 + raw)   (smooth mapping [0, ∞) → [0, 1), no hard cap)
-```
-
-Close same-type entities (topically related) contribute strongly; distant unrelated ones contribute near-zero. Only same-type siblings (same subject + verb + answer type) count — cross-type objects sharing a verb base are excluded.
-
-### Text-Side Level Thresholds
-
-After combining the three dimensions, the score is mapped to a level:
+After combining the four components, the averaged score [0, 1] is mapped to an 8-level CEFR scale using evenly-spaced thresholds (1/7 intervals):
 
 | Combined score | Level |
 |---|---|
-| ≥ 0.75 | C2+ |
-| ≥ 0.55 | C2 |
-| ≥ 0.40 | C1 |
-| ≥ 0.25 | B2 |
-| ≥ 0.20 | B1 |
-| ≥ 0.12 | A2 |
-| ≥ 0.04 | A1 |
-| ≥ 0.00 | preA1 |
+| ≥ 0.929 | C2+ |
+| ≥ 0.786 | C2 |
+| ≥ 0.643 | C1 |
+| ≥ 0.500 | B2 |
+| ≥ 0.357 | B1 |
+| ≥ 0.214 | A2 |
+| ≥ 0.071 | A1 |
+| ≥ 0.000 | preA1 |
 
-### Question-Side Signals
+**Implementation:** `question_generation/difficulty/base.py` (ABC + normalisation) and `question_generation/difficulty/rule_based.py` (concrete scoring).
 
-| Signal | Description | Max raw |
-|---|---|---|
-| Form score | yesno=0, wh-=2, comparison/which=4, aggregation=5, chain=6 | 6 |
-| Passive voice | Passive question construction | 2 |
-| Nominalization | Chain uses noun phrase ("the founder of X") | 2 |
+---
 
-**Total max = 10.** Normalised → level mapping with question-specific thresholds.
+## Difficulty Variant Generation (Phase 3)
 
-### Calibration Examples
+After questions are generated and difficulty is estimated, **difficulty variants** are created by replacing main verbs with semantically similar synonyms at different CEFR levels.
 
-| Question | Text-side | Question-side |
-|---|---|---|
-| "What did Nokia acquire?" (1-hop active) | local≈0 → varies by LIX+distractor | A1 |
-| "Who was Nokia founded by?" (1-hop passive) | local=2/28 | B1 |
-| "Which org did Nokia acquire in 2016?" | — | B1 |
-| 2-hop simple chain | local=6/28 | C1 |
-| 2-hop passive chain | local=8/28 | C2 |
+### Pipeline
 
-Implementation: `question_generation/difficulty/base.py` (ABC + normalisation) and `question_generation/difficulty/rule_based.py` (concrete scoring).
+1. **Lemmatization** — Extract main verb from question and get base form (e.g., "founded" → "find")
+2. **Frequency Lookup** — Look up lemma frequency using wordfreq (English) or local vocab (Finnish)
+3. **CEFR Classification** — Map frequency to CEFR level using **percentile-based bins**:
+   - **A1** (easiest): Top 30% most frequent words
+   - **A2**: 30-55% 
+   - **B1**: 55-75%
+   - **B2**: 75-90%
+   - **C1**: 90-97%
+   - **C2** (hardest): 97-100% least frequent
+
+4. **Word2Vec Synonym Lookup** — Find Word2Vec neighbors at target CEFR level using:
+   - Google Word2Vec (English) or FastText-wiki (Finnish)
+   - Similarity threshold: 0.5+
+   - Accept exact CEFR match or ±2 levels if high similarity (>0.55)
+
+5. **Verb Replacement** — Replace main verb with synonym while preserving sentence structure
+
+6. **Deduplication** — Only keep variant if text actually changed; skip duplicates
+
+### Example
+
+**Original question (A1 difficulty):**
+```
+"When was Microsoft founded?"
+```
+
+**Generated variants:**
+- **A1**: "When was Microsoft found?" (simplest form)
+- **A2**: "When was Microsoft started?" (more common synonym)
+- **B1**: "When was Microsoft created?" (less common)
+- **B2**: "When was Microsoft established?" (rare)
+- **C1**: "When was Microsoft instituted?" (very rare)
+
+### Limitations
+
+⚠️ **Word2Vec coverage is incomplete:**
+- Only works for verbs that have high-similarity neighbors at different CEFR levels
+- Some verbs (e.g., domain-specific terminology) may not have good synonyms
+- When no variant is found at a target level, the original verb is kept
+- If a question cannot generate any unique variants, only the original question is kept
 
 ---
 
@@ -242,21 +293,35 @@ knowledge_graph/
 └── coref.py          Heuristic pronoun/partial-name coreference + coref_distance
 
 question_generation/
-├── generator.py      QuestionGenerator — orchestrates all question types
-├── models.py         Question dataclass (text, answer, answer_list, difficulty axes, …)
-├── templates.py      Question string builders (EN + FI)
+├── generator.py              QuestionGenerator (+ create_variants param)
+├── models.py                 Question dataclass (text, answer, answer_list, difficulty, …)
+├── templates.py              Question string builders (EN + FI)
+├── variant_processor.py      Difficulty variant generation (NEW!)
+│                             ├─ Verb lemmatization + extraction
+│                             ├─ Question variant creation
+│                             └─ Deduplication
+├── word2vec_variants.py      Word2Vec synonym lookup (NEW!)
+│                             ├─ Percentile-based CEFR binning
+│                             ├─ Word2Vec model loading (gensim)
+│                             └─ Frequency lookup (wordfreq + local files)
 └── difficulty/
-    ├── base.py       DifficultyEstimator ABC + CEFR thresholds + LEVELS / LEVEL_ORDER
-    └── rule_based.py RuleBasedEstimator (text_max=28, question_max=10)
+    ├── base.py               DifficultyEstimator ABC + CEFR thresholds
+    └── rule_based.py         RuleBasedEstimator (text_max=28, question_max=10)
 
 scripts/
-├── question_generation_script.py    CLI: .txt → Markdown report
-└── question_generation_streamlit.py Interactive Streamlit UI
+├── question_generation_script.py  CLI (legacy)
+├── question_generation_streamlit.py Interactive UI (legacy)
+└── demo_variants.py          CLI variant generation (NEW!)
 
 data/
-├── en/demo.txt       English demo passage (Nokia)
-├── fi/demo.txt       Finnish demo passage (Nokia)
-└── output/           Generated reports (git-ignored)
+├── en/
+│   ├── microsoft.txt         English demo passage
+│   ├── cern.txt
+│   └── ... (vocab/ git-ignored)
+├── fi/
+│   ├── demo.txt              Finnish demo passage
+│   └── ... (vocab/ git-ignored)
+└── output/                   Generated reports (git-ignored)
 ```
 
 ---
@@ -264,24 +329,66 @@ data/
 ## Running
 
 ```bash
-# Streamlit UI (interactive)
-make streamlit
+# Generate questions with difficulty variants (default: auto-save to data/output/)
+make questions INPUT=data/en/microsoft.txt TARGET_CEFR=C1
 
-# CLI: generate a Markdown report
-make script INPUT=data/en/demo.txt
-make script INPUT=data/en/demo.txt OUTPUT=data/output/nokia_en.md
+# Different target CEFR level
+make questions INPUT=data/en/microsoft.txt TARGET_CEFR=B1
 
-# Direct script invocation
-python scripts/question_generation_script.py data/en/demo.txt --output report.md --max-questions 20
+# Print to terminal (verbose)
+make questions INPUT=data/en/microsoft.txt VERBOSE=1
+
+# Custom output file
+make questions INPUT=data/en/microsoft.txt OUTPUT=my_report.md TARGET_CEFR=B1
+
+# Interactive UI
+make app
 ```
+
+**Output:** Markdown report with timestamp, input text, questions table, and knowledge graph statistics.
 
 ---
 
 ## Known Limitations
 
+### Question Generation
 - **Relation labels** are shallow (verb lemma + preposition only); complex semantic relations may be missed
 - **Finnish question types** — only `object`, `subject`, and `chain` forms; yes/no, comparison, which, aggregation are English-only
 - **Coreference heuristic** fails with multiple persons of the same gender in the same passage
-- **Aggregation deduplication** — one question per (subject, verb) pair; different phrasings of the same group are collapsed
-- **0-hop questions** (entity-type definitions, e.g. "What is Nokia?") are not generated — too trivial for the intended difficulty range
+- **Aggregation deduplication** — one question per (subject, verb) pair; different phrasings are collapsed
+- **0-hop questions** (entity-type definitions, e.g. "What is Nokia?") are not generated — too trivial
+- **Entity extraction noise** — NER and extraction may include non-entities (company, domain, etc. with `None` type)
+
+### Abstract Text — 0 Questions Generated
+
+The pipeline is **entity-centric**: it requires named entities (PERSON, ORG, DATE, GPE) as anchors to build questions. Abstract, argumentative, or conceptual passages (e.g. academic essays, opinion pieces) produce triples where all entity types are `None`, resulting in 0 questions generated.
+
+**Example of a failing passage:**
+```
+"The proliferation of artificial intelligence has fundamentally altered clinical practice.
+ Critics contend that algorithmic diagnoses lack the contextual sensitivity…"
+```
+All extracted triples have `subj_type=None, obj_type=None` → no question templates match.
+
+**Workaround (short-term):** Ensure the passage contains concrete named entities — real organizations, people, dates, and locations — even when the topic is abstract. For example, grounding the same topic around "DeepMind developed X in 2019" enables question generation.
+
+**Future solution — LLM fallback:**
+When KG extraction yields fewer than N typed-entity triples, fall back to an LLM-based question generator that can reason over abstract concepts directly. The LLM output would be merged with any KG-derived questions, with difficulty estimated via the same readability + question-form scoring model. This keeps the KG pipeline as the primary path and only pays the LLM cost for genuinely abstract passages.
+
+### Difficulty Variant Generation
+- **Word2Vec coverage is incomplete** — Not all verbs have semantic neighbors at every CEFR level
+  - If no synonym found at target level, the original verb is kept
+  - Some questions may not have variants at all difficulty levels (e.g., all A1)
+  - This is acceptable — better one good question than multiple duplicates with false difficulties
+  - **Google News corpus bias** — Google Word2Vec is trained on news text, so neighbors reflect news/sports context. For example, `mark` (B1) returns `eclipsing`, `surpassing`, `milestone` (all C2) rather than simpler synonyms like `happen` or `occur`. General-purpose verbs in non-news contexts are poorly served.
+  
+- **Percentile-based CEFR binning** assumes word frequency correlates with CEFR level
+  - Works well for common words (common → easy)
+  - Limited coverage for specialized/technical vocabulary
+  - Finnish frequency data requires local vocabulary files (git-ignored)
+
+- **Lemmatization dependency** — Accuracy depends on Stanza NLP quality for the language
+  - Edge cases (irregular verbs, phrasal verbs) may not lemmatize correctly
+
+### Other
 - **IRT calibration** — empirical β estimates require real learner response data (Phase 2 goal)

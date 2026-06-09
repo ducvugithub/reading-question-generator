@@ -21,6 +21,7 @@ from question_generation.difficulty import CefrReadability
 
 from question_generation.difficulty import LEVELS, LEVEL_ORDER
 
+_REPO_ROOT = Path(__file__).parent.parent
 _SUPPORTED = {"en": "English 🇬🇧", "fi": "Finnish 🇫🇮"}
 _DIFF_LABEL = {
     "preA1": "preA1 — Beginner", "A1": "A1 — Elementary", "A2": "A2 — Pre-intermediate",
@@ -99,7 +100,7 @@ col_left, col_right = st.columns(2, gap="large")
 with col_left:
     st.markdown("### 📝 Input Text")
 
-    tab_paste, tab_upload = st.tabs(["✏️ Paste text", "📄 Upload .txt"])
+    tab_paste, tab_upload, tab_examples = st.tabs(["✏️ Paste text", "📄 Upload .txt", "📂 Examples"])
     raw_text = st.session_state.get("app_text", "")
 
     with tab_paste:
@@ -124,6 +125,30 @@ with col_left:
             st.session_state["app_text"] = content
             raw_text = content
             st.text_area("preview", content, height=160, disabled=True, label_visibility="collapsed")
+
+    with tab_examples:
+        example_files = {}
+        for lang_code, lang_label in _SUPPORTED.items():
+            lang_dir = _REPO_ROOT / "data" / lang_code
+            if lang_dir.exists():
+                for p in sorted(lang_dir.glob("*.txt")):
+                    example_files[f"{lang_label} — {p.stem}"] = p
+        if example_files:
+            selected = st.selectbox(
+                "Select a text file",
+                options=list(example_files.keys()),
+                label_visibility="collapsed",
+                disabled=is_analyzing or is_generating,
+            )
+            if st.button("Load", disabled=is_analyzing or is_generating, use_container_width=True):
+                content = example_files[selected].read_text(encoding="utf-8")
+                st.session_state["app_text"] = content
+                raw_text = content
+                st.rerun()
+            if raw_text:
+                st.text_area("example_preview", raw_text, height=140, disabled=True, label_visibility="collapsed")
+        else:
+            st.caption("No .txt files found under data/en/ or data/fi/")
 
     st.divider()
 
