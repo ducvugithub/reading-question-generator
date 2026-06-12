@@ -39,13 +39,13 @@ INPUT: Text passage
    └─ [5] Estimate difficulty (text-side + question-side)
    ↓
 [PHASE 3: DIFFICULTY VARIANTS]
-   ├─ [6a] Extract main verb from question
-   ├─ [6b] Lemmatize verb → base form (e.g., "founded" → "find")
-   ├─ [6c] Look up lemma frequency (wordfreq or local vocab)
-   ├─ [6d] CEFR classification via percentile bins (A1=30%, A2=25%, B1=20%, B2=15%, C1=7%, C2=3%)
-   ├─ [6e] Find Word2Vec synonym at target CEFR level
-   ├─ [6f] Replace verb while preserving sentence structure
-   └─ [6g] Deduplicate (skip if text unchanged)
+   ├─ [6a] Stanza POS+depparse: find content VERB token (not AUX), prefer syntactic root
+   │         e.g., "What did Microsoft do?" → "do" (skips auxiliary "did")
+   ├─ [6b] Look up token frequency (wordfreq or local vocab)
+   ├─ [6c] CEFR classification via percentile bins (A1=30%, A2=25%, B1=20%, B2=15%, C1=7%, C2=3%)
+   ├─ [6d] Find Word2Vec synonym at target CEFR level
+   ├─ [6e] Replace verb while preserving sentence structure
+   └─ [6f] Deduplicate (skip if text unchanged)
    ↓
 OUTPUT: Questions with variants at A1–C2 levels
 ```
@@ -139,7 +139,7 @@ One anchor node, all connected event clusters. The answer is a list of event sen
 | person | PERSON | "What did Fredrik Idestam do?" | list of event sentences |
 | org | ORG | "What has Nokia been involved in?" | list of event sentences |
 
-Templates are in `question_generation/templates.py`. Finnish is supported for Category 1 `object`, `subject` types.
+Templates are in `question_generation/templates/` (`_en.py`, `_fi.py`). Each question type has a **single A1 base-form template** — difficulty variation is handled entirely by Word2Vec verb replacement in Phase 3. Finnish is supported for `object`, `subject`, and `chain` types.
 
 ---
 
@@ -241,8 +241,8 @@ After questions are generated and difficulty is estimated, **difficulty variants
 
 ### Pipeline
 
-1. **Lemmatization** — Extract main verb from question and get base form (e.g., "founded" → "find")
-2. **Frequency Lookup** — Look up lemma frequency using wordfreq (English) or local vocab (Finnish)
+1. **Verb Extraction** — Stanza parses the question with POS + dependency parsing. The syntactic root token with `upos=VERB` is selected. Auxiliaries (`upos=AUX`) are skipped, so "did" in "What did Microsoft do?" is never picked — "do" is. Light verbs (`do`, `be`, `have`, `get`) are skipped entirely — no meaningful synonyms exist for them.
+2. **Frequency Lookup** — Look up token frequency using wordfreq (English) or local vocab (Finnish)
 3. **CEFR Classification** — Map frequency to CEFR level using **percentile-based bins**:
    - **A1** (easiest): Top 30% most frequent words
    - **A2**: 30-55% 
@@ -256,9 +256,11 @@ After questions are generated and difficulty is estimated, **difficulty variants
    - Similarity threshold: 0.5+
    - Accept exact CEFR match or ±2 levels if high similarity (>0.55)
 
-5. **Verb Replacement** — Replace main verb with synonym while preserving sentence structure
+5. **Morphological Re-inflection** — The W2V result is lemmatized (Stanza), then re-inflected to the original verb's Penn Treebank form using `pyinflect`. E.g., "occurring" (C1 neighbor of "happened") → lemma "occur" → re-inflected VBD → "occurred". This ensures the synonym fits the sentence grammar regardless of which form W2V returns.
 
-6. **Deduplication** — Only keep variant if text actually changed; skip duplicates
+6. **Verb Replacement** — Replace the original inflected form in the question with the re-inflected synonym.
+
+7. **Deduplication** — Only keep variant if text actually changed; skip duplicates across levels.
 
 ### Example
 
@@ -387,8 +389,9 @@ When KG extraction yields fewer than N typed-entity triples, fall back to an LLM
   - Limited coverage for specialized/technical vocabulary
   - Finnish frequency data requires local vocabulary files (git-ignored)
 
-- **Lemmatization dependency** — Accuracy depends on Stanza NLP quality for the language
-  - Edge cases (irregular verbs, phrasal verbs) may not lemmatize correctly
+- **Limited unique synonyms per verb** — Word2Vec may find only 2–3 usable synonyms for a given verb (e.g., "happened" → "occurred", "transpired", "unfolded"). When fewer synonyms exist than CEFR levels, some levels collapse to the same text and are deduplicated away. This is a coverage limitation of the Google News corpus, not a bug.
+
+- **Verb extraction depends on Stanza POS quality** — Stanza correctly distinguishes `VERB` vs `AUX` in most English and Finnish constructions; edge cases (irregular verbs, fixed phrases) may fail
 
 ### Other
 - **IRT calibration** — empirical β estimates require real learner response data (Phase 2 goal)

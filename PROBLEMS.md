@@ -188,6 +188,26 @@ which is a structural change to both `coref.py` and `graph.py`.
 
 ---
 
+## #11 — Morphological mismatch in Word2Vec verb replacement
+
+**Examples:**
+```
+"When did FDA introducing?" → 2021     (should be "introduce")
+"When did FDA approved?"   → 2020     (should be "approve")
+"What happen in 2019?"                (should be "happened")
+```
+
+**Root cause:** Word2Vec replacement is purely token-level — the synonym string is substituted verbatim into the question. No morphological inflection is applied after replacement. Two sub-cases:
+
+1. **Base-form slot after "did"**: In "What did FDA introduce?", Word2Vec finds "introducing" or "approved" as neighbors of "introduce". These are morphologically wrong in a `did + BASE` context.
+2. **Tense replacement for anchor verbs**: "What happened in 2019?" — Word2Vec finds "happen" as a neighbor of "happened". Substituting it produces the uninflected base form without tense.
+
+**Fix:** After substituting a synonym, lemmatize the W2V result (Stanza), then re-inflect to the original token's Penn Treebank xpos using `pyinflect`. E.g., "occurring" → lemma "occur" → `getInflection("occur", "VBD")` → "occurred".
+
+**Status:** Fixed — `variant_processor.py` (`_inflect_to_form`, `_lemmatize`)
+
+---
+
 ## #5 — Missing preposition in passive subject-mask questions
 
 **Example:**

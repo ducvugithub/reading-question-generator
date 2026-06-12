@@ -5,3 +5,4 @@ streamlit>=1.35.0
 gensim>=4.3.0
 wordfreq>=3.0
 pandas>=2.0
+pyinflect>=0.5.1
