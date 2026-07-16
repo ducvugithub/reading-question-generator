@@ -18,7 +18,7 @@ import pyinflect
 import stanza
 
 from question_generation.models import Question
-from question_generation.word2vec_variants import get_variant_generator
+from question_generation.methods.template.word2vec_variants import get_variant_generator
 
 # Verbs too generic for meaningful Word2Vec synonyms
 _LIGHT_VERBS = {"do", "be", "have", "get"}

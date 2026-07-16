@@ -295,25 +295,33 @@ knowledge_graph/
 └── coref.py          Heuristic pronoun/partial-name coreference + coref_distance
 
 question_generation/
-├── generator.py              QuestionGenerator (+ create_variants param)
-├── models.py                 Question dataclass (text, answer, answer_list, difficulty, …)
-├── templates.py              Question string builders (EN + FI)
-├── variant_processor.py      Difficulty variant generation (NEW!)
-│                             ├─ Verb lemmatization + extraction
-│                             ├─ Question variant creation
-│                             └─ Deduplication
-├── word2vec_variants.py      Word2Vec synonym lookup (NEW!)
-│                             ├─ Percentile-based CEFR binning
-│                             ├─ Word2Vec model loading (gensim)
-│                             └─ Frequency lookup (wordfreq + local files)
-└── difficulty/
-    ├── base.py               DifficultyEstimator ABC + CEFR thresholds
-    └── rule_based.py         RuleBasedEstimator (text_max=28, question_max=10)
+├── generator.py              Orchestrator — selects method, delegates generation
+├── models.py                 Question dataclass (text, answer, difficulty, …)
+├── difficulty/               Shared across all methods
+│   ├── base.py               DifficultyEstimator ABC + CEFR thresholds
+│   ├── rule_based.py         RuleBasedEstimator (text_max=28, question_max=10)
+│   └── cefr_readability.py   ModernBERT readability scorer + LIX fallback
+└── methods/
+    ├── base.py               QGMethod ABC — generate(text, anchor, cefr, lang, subgraph)
+    ├── template/             Rule-based generation (current, fully implemented)
+    │   ├── generator.py      TemplateMethod
+    │   ├── question_types/   Retrieval / inferential / critical question handlers
+    │   ├── templates/        _en.py + _fi.py — single A1 base-form templates per type
+    │   ├── variant_processor.py  Stanza POS → W2V lookup → pyinflect re-inflection
+    │   └── word2vec_variants.py  Percentile-based CEFR binning + gensim lookup
+    ├── seq2seq/              Linearized KG → T5/FinT5 decoder (NOT YET IMPLEMENTED)
+    │   ├── generator.py      Seq2SeqMethod
+    │   └── linearizer.py     Triples → "E | rel | E . E | rel | E" flat string
+    ├── gnn/                  GNN encoder → T5 decoder (NOT YET IMPLEMENTED)
+    │   ├── generator.py      GNNMethod
+    │   └── encoder.py        GraphSAGE/GAT message passing → node embeddings
+    └── llm/                  Raw text + anchor → Claude/GPT (NOT YET IMPLEMENTED)
+        ├── generator.py      LLMMethod — no KG needed, works on abstract passages
+        └── prompt.py         CEFR-conditioned prompt templates (EN + FI)
 
 scripts/
-├── question_generation_script.py  CLI (legacy)
-├── question_generation_streamlit.py Interactive UI (legacy)
-└── demo_variants.py          CLI variant generation (NEW!)
+├── question_generation_streamlit.py  Interactive UI
+└── demo_variants.py                  CLI — make questions INPUT=...
 
 data/
 ├── en/

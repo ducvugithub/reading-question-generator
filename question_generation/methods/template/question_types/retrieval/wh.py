@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext
-from question_generation.question_types.base import SKIP_VERB_BASES, SKIP_MASK_SUBJECT_TYPES, SKIP_MASK_OBJECT_TYPES, LOC_TYPES
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext
+from question_generation.methods.template.question_types.base import SKIP_VERB_BASES, SKIP_MASK_SUBJECT_TYPES, SKIP_MASK_OBJECT_TYPES, LOC_TYPES
 from question_generation.models import Question
-from question_generation.templates import build_question, build_aggregation_question, build_single_variant, build_aggregation_variant, TYPE_NOUNS_PLURAL, question_word_by_case
+from question_generation.methods.template.templates import build_question, build_aggregation_question, build_single_variant, build_aggregation_variant, TYPE_NOUNS_PLURAL, question_word_by_case
 
 
 class WHQuestion(QuestionType):
@@ -108,7 +108,7 @@ class WHQuestion(QuestionType):
                 if obj_case and mask == "object":
                     extracted_qw = question_word_by_case(self.lang, obj_case, answer_type)
                 else:
-                    from question_generation.templates import question_word as get_question_word
+                    from question_generation.methods.template.templates import question_word as get_question_word
                     extracted_qw = get_question_word(self.lang, answer_type)
 
                 result = build_single_variant(

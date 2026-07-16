@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES, SKIP_YESNO_TYPES
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES, SKIP_YESNO_TYPES
 from question_generation.models import Question
-from question_generation.templates import build_yesno_question, build_yesno_variant
+from question_generation.methods.template.templates import build_yesno_question, build_yesno_variant
 
 # Entity types eligible as false-premise distractors
 _SUBSTITUTABLE_TYPES = {"ORG", "PERSON", "PER", "GPE", "LOC", "FAC", "DATE", "TIME"}

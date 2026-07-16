@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_which_question, build_which_variant
+from question_generation.methods.template.templates import build_which_question, build_which_variant
 
 _TYPE_NOUNS = {
     "ORG": "organization", "PERSON": "person", "PER": "person",

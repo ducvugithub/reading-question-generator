@@ -11,6 +11,11 @@ _OBJECT_DEPRELS = {"obj", "iobj", "obl", "obl:agent"}
 _CLAUSAL_DEPS = {"relcl", "advcl", "acl", "csubj", "ccomp", "xcomp"}
 
 
+_PRONOUNS = frozenset({
+    "he", "she", "they", "it", "his", "her", "their", "him", "them", "we", "i", "me", "us",
+})
+
+
 @dataclass
 class Triple:
     subject: str
@@ -36,10 +41,18 @@ class KnowledgeGraphExtractor:
     """
     Extract (subject, relation, object) triples from text using Stanza.
     Lazy-loads the pipeline on first call to extract().
+
+    Args:
+        lang:  ISO language code ('en', 'fi', ...).
+        coref: If True, run Stanza coreference resolution and replace pronoun
+               subjects/objects with their antecedent.  English only — for other
+               languages a warning is emitted and coref is silently skipped.
+               Requires the coref model: stanza.download('en', processors='coref')
     """
 
-    def __init__(self, lang: str = "en") -> None:
+    def __init__(self, lang: str = "en", coref: bool = False) -> None:
         self.lang = lang
+        self.coref = coref
         self._nlp: Optional[stanza.Pipeline] = None
 
     def extract(self, text: str) -> list[Triple]:
@@ -49,13 +62,25 @@ class KnowledgeGraphExtractor:
             entity_map, surface_map = _build_entity_map(sentence)
             depth = _sentence_depth(sentence)
             triples.extend(_extract_sentence(sentence, entity_map, surface_map, sent_idx, depth))
+        if self.coref and self.lang == "en":
+            triples = _resolve_coref(doc, triples)
         return triples
 
     def _pipeline(self) -> stanza.Pipeline:
         if self._nlp is None:
+            processors = "tokenize,ner,pos,lemma,depparse"
+            if self.coref:
+                if self.lang == "en":
+                    processors += ",coref"
+                else:
+                    import warnings
+                    warnings.warn(
+                        f"Stanza coref not available for lang={self.lang!r}, skipping.",
+                        stacklevel=3,
+                    )
             self._nlp = stanza.Pipeline(
                 self.lang,
-                processors="tokenize,ner,pos,lemma,depparse",
+                processors=processors,
                 use_gpu=False,
             )
         return self._nlp
@@ -116,6 +141,9 @@ def _extract_sentence(
             for obj_word, deprel in _find_objects(verb, words_by_id, obj_fallback_ids):
                 resolved = _resolve_postposition(obj_word, words_by_id, entity_map)
                 obj_text, obj_type = _resolve_mention(resolved, entity_map)
+                enriched = _compound_label(resolved, words_by_id, entity_map)
+                if enriched:
+                    obj_text = enriched
                 relation = _relation_label(verb, obj_word, deprel, words_by_id)
                 feats = _extract_feats(resolved)
                 obj_case = feats.get("Case", "")
@@ -134,6 +162,7 @@ def _extract_sentence(
                 ))
 
     triples.extend(_extract_copula(sentence, entity_map, words_by_id, sentence_idx, source_depth))
+    triples.extend(_extract_appositions(sentence, entity_map, words_by_id, sentence_idx, source_depth))
     return triples
 
 
@@ -154,6 +183,17 @@ def _find_subjects(verb, words_by_id: dict) -> tuple[list, set[int]]:
             subjects.extend(_expand_conjuncts(word, words_by_id))
     if subjects:
         return subjects, set()
+
+    # Conjunct subject sharing: "she performed … and rose" — "rose" is conj of
+    # "performed" and inherits "she" as its subject.
+    if verb.deprel == "conj":
+        head = words_by_id.get(verb.head)
+        if head and head.upos in ("VERB", "AUX"):
+            for word in words_by_id.values():
+                if word.head == head.id and word.deprel in _SUBJECT_DEPRELS:
+                    subjects.extend(_expand_conjuncts(word, words_by_id))
+            if subjects:
+                return subjects, set()
 
     # Finnish passive fallback: promote obj to pseudo-subject
     obj_subjects = []
@@ -195,6 +235,68 @@ def _expand_conjuncts(word, words_by_id: dict) -> list:
         if w.head == word.id and w.deprel == "conj":
             result.extend(_expand_conjuncts(w, words_by_id))
     return result
+
+
+# ── Apposition extraction ────────────────────────────────────────────────────
+
+_APPOS_DATE_TYPES = {"DATE", "CARDINAL", "ORDINAL"}
+# deprels used for parenthetical year modifiers: "Dangerously in Love (2003)"
+_APPOS_DEPRELS = {"appos", "nmod:unmarked", "nmod:tmod"}
+
+
+def _extract_appositions(
+    sentence, entity_map: dict, words_by_id: dict,
+    sentence_idx: int = 0, source_depth: int = 0,
+) -> list[Triple]:
+    """
+    Extract triples from apposition / parenthetical modifier relations.
+
+    Handles:
+      - NE appos/nmod:unmarked DATE  → (entity, year, date)  e.g. "Dangerously in Love (2003)"
+      - NE appos NE                  → (entity, also_known_as, alias)
+    """
+    triples = []
+    for word in sentence.words:
+        if word.deprel not in _APPOS_DEPRELS:
+            continue
+        head = words_by_id.get(word.head)
+        if head is None:
+            continue
+
+        head_text, head_type = _resolve_mention(head, entity_map)
+        appos_text, appos_type = _resolve_mention(word, entity_map)
+
+        is_date = appos_type in _APPOS_DATE_TYPES or (
+            word.id not in entity_map and word.lemma.isdigit() and len(word.lemma) == 4
+        )
+        is_named = word.id in entity_map
+
+        if not (is_date or is_named):
+            continue
+
+        # nmod:unmarked only fires when the child is a DATE — avoids noisy generic nmods
+        if word.deprel == "nmod:unmarked" and not is_date:
+            continue
+
+        if head_text == appos_text:
+            continue
+        if is_date:
+            relation = "year"
+        elif head_type in {"GPE", "LOC", "FAC"} and appos_type in {"GPE", "LOC", "FAC"}:
+            relation = "located_in"
+        elif is_named:
+            relation = "also_known_as"
+        else:
+            continue
+        triples.append(Triple(
+            subject=head_text, subject_type=head_type,
+            relation=relation,
+            object=appos_text, object_type=appos_type,
+            source=sentence.text,
+            sentence_idx=sentence_idx,
+            source_depth=source_depth,
+        ))
+    return triples
 
 
 # ── Copula extraction ─────────────────────────────────────────────────────────
@@ -349,3 +451,72 @@ def _resolve_mention(word, entity_map: dict) -> tuple[str, Optional[str]]:
     if word.id in entity_map:
         return entity_map[word.id]
     return word.lemma.replace("#", ""), None
+
+
+def _resolve_coref(doc, triples: list[Triple]) -> list[Triple]:
+    """
+    Replace pronoun subjects/objects in triples with their coreference antecedent.
+
+    Uses Stanza's doc.coref chains.  Each chain's representative_mention provides
+    the canonical surface form (usually the full name).  Sets coref_distance=1 on
+    any triple that was rewritten so downstream code can distinguish coref-resolved
+    triples from original ones.
+    """
+    if not hasattr(doc, "coref") or not doc.coref:
+        return triples
+
+    # Build pronoun text → representative text map.
+    # If the same pronoun appears in multiple chains (rare), last one wins.
+    coref_map: dict[str, str] = {}
+    for chain in doc.coref:
+        rep = chain.representative_mention.text
+        for mention in chain.mentions:
+            if mention.text.lower() in _PRONOUNS:
+                coref_map[mention.text.lower()] = rep
+
+    if not coref_map:
+        return triples
+
+    import dataclasses
+    result = []
+    for t in triples:
+        subj = coref_map.get(t.subject.lower(), t.subject)
+        obj = coref_map.get(t.object.lower(), t.object)
+        if subj != t.subject or obj != t.object:
+            t = dataclasses.replace(t, subject=subj, object=obj, coref_distance=1)
+        result.append(t)
+    return result
+
+
+def _compound_label(word, words_by_id: dict, entity_map: dict) -> Optional[str]:
+    """
+    For common-noun objects (not named entities), prepend compound/amod modifiers
+    including their conj chains so "competition" becomes "singing and dancing competition".
+    Returns None when the word is a named entity (entity_map handles those).
+    """
+    if word.id in entity_map:
+        return None
+    direct_mods = [
+        w for w in words_by_id.values()
+        if w.head == word.id and w.deprel in ("compound", "amod")
+        and w.upos in ("NOUN", "VERB", "ADJ")
+    ]
+    if not direct_mods:
+        return None
+    # Expand conj chains including cc tokens: "singing and dancing"
+    # _expand_conjuncts gives [singing, dancing] but drops "and" (cc deprel)
+    seen: set[int] = set()
+    all_mods: list = []
+    for mod in direct_mods:
+        for w in _expand_conjuncts(mod, words_by_id):
+            if w.id not in seen:
+                all_mods.append(w)
+                seen.add(w.id)
+            # Also grab the coordinating conjunction ("and", "or") attached to w
+            for cc in words_by_id.values():
+                if cc.head == w.id and cc.deprel == "cc" and cc.id not in seen:
+                    all_mods.append(cc)
+                    seen.add(cc.id)
+    all_mods.sort(key=lambda w: w.id)
+    prefix = " ".join(w.text for w in all_mods)
+    return f"{prefix} {word.lemma.replace('#', '')}"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from question_generation.templates import _en, _fi
+from question_generation.methods.template.templates import _en, _fi
 
 _REGISTRY = {"en": _en, "fi": _fi}
 

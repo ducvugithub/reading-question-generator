@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from question_generation.question_types.base import QuestionType, GenerationContext
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_chain_question, build_chain_variant
+from question_generation.methods.template.templates import build_chain_question, build_chain_variant
 
 
 class ChainQuestion(QuestionType):

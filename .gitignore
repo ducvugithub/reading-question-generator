@@ -29,3 +29,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# SLURM job scripts (machine-specific, not committed)
+slurms/

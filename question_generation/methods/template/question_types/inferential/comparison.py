@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext
 from question_generation.models import Question
-from question_generation.templates import build_comparison_question, build_comparison_variant
+from question_generation.methods.template.templates import build_comparison_question, build_comparison_variant
 
 
 class ComparisonQuestion(QuestionType):

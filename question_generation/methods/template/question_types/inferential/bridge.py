@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
 from question_generation.models import Question
 
 _BRIDGE_TYPE_NOUNS: dict[str, str] = {

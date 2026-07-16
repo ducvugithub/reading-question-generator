@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from question_generation.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
+from question_generation.methods.template.question_types.base import QuestionType, GenerationContext, SKIP_VERB_BASES
 from question_generation.models import Question
-from question_generation.templates import build_anchor_question, build_multi_anchor_question
+from question_generation.methods.template.templates import build_anchor_question, build_multi_anchor_question
 
 _SUBJECT_ANCHORS = {"PERSON", "PER", "ORG"}
 _OBJECT_ANCHORS = {"DATE", "TIME", "GPE", "LOC", "FAC"}
