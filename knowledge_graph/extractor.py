@@ -85,10 +85,11 @@ class KnowledgeGraphExtractor:
                         f"Stanza coref not available for lang={self.lang!r}, skipping.",
                         stacklevel=3,
                     )
+            import torch
             self._nlp = stanza.Pipeline(
                 self.lang,
                 processors=processors,
-                use_gpu=True,
+                use_gpu=torch.cuda.is_available(),
             )
         return self._nlp
 
