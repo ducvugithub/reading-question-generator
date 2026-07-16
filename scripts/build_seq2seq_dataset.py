@@ -51,7 +51,7 @@ def _squad_samples(
         return
     from datasets import load_dataset
 
-    ds = load_dataset("rajpurkar/squad_v2", split="train", streaming=True)
+    ds = load_dataset("rajpurkar/squad_v2", split="train")
     count = 0
     for s in ds:
         if not s["answers"]["text"]:
@@ -73,7 +73,7 @@ def _tydiqa_samples(
 
     _LANG_MAP = {"english": "en", "finnish": "fi"}
     ds = load_dataset(
-        "google-research-datasets/tydiqa", "secondary_task", split="train", streaming=True
+        "google-research-datasets/tydiqa", "secondary_task", split="train"
     )
     count = 0
     for s in ds:
@@ -101,7 +101,7 @@ def _nq_samples(
     from datasets import load_dataset
 
     ds = load_dataset(
-        "google-research-datasets/natural_questions", split="train", streaming=True
+        "google-research-datasets/natural_questions", split="train"
     )
     count = 0
     for s in ds:
@@ -149,7 +149,7 @@ def _squad_fi_samples(
         return
     from datasets import load_dataset
 
-    ds = load_dataset("ilmariky/SQuAD_v2_fi", split="train", streaming=True)
+    ds = load_dataset("ilmariky/SQuAD_v2_fi", split="train")
     count = 0
     for s in ds:
         if not s["answers"]["text"]:
