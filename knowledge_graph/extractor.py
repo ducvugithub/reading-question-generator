@@ -56,15 +56,22 @@ class KnowledgeGraphExtractor:
         self._nlp: Optional[stanza.Pipeline] = None
 
     def extract(self, text: str) -> list[Triple]:
+        raw, _ = self.extract_both(text)
+        return raw
+
+    def extract_both(self, text: str) -> tuple[list[Triple], list[Triple]]:
+        """Return (raw_triples, coref_triples) in one pipeline pass.
+        For non-English or when coref=False, coref_triples is the same list as raw_triples.
+        """
         doc = self._pipeline()(text)
-        triples: list[Triple] = []
+        raw: list[Triple] = []
         for sent_idx, sentence in enumerate(doc.sentences):
             entity_map, surface_map = _build_entity_map(sentence)
             depth = _sentence_depth(sentence)
-            triples.extend(_extract_sentence(sentence, entity_map, surface_map, sent_idx, depth))
+            raw.extend(_extract_sentence(sentence, entity_map, surface_map, sent_idx, depth))
         if self.coref and self.lang == "en":
-            triples = _resolve_coref(doc, triples)
-        return triples
+            return raw, _resolve_coref(doc, raw)
+        return raw, raw
 
     def _pipeline(self) -> stanza.Pipeline:
         if self._nlp is None:
@@ -81,7 +88,7 @@ class KnowledgeGraphExtractor:
             self._nlp = stanza.Pipeline(
                 self.lang,
                 processors=processors,
-                use_gpu=False,
+                use_gpu=True,
             )
         return self._nlp
 

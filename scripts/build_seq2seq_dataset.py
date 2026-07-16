@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 """
-Build seq2seq training data for question generation from SQuAD 2.0, Natural Questions, and TyDiQA.
+Build unified QG training data from SQuAD 2.0 and TyDiQA.
 
-Pipeline per sample:
-  1. Load (passage, question) from source dataset.
-  2. Optionally filter to short passages (--max-passage-length).
-  3. Run KG extractor on the passage → triples.
-  4. Linearize all triples (up to --max-triples) with a CEFR control prefix.
-  5. Assign CEFR level via RuleBasedEstimator (passage readability).
+Each output record contains:
+  - passage, answer, question  (for seq2seq baseline)
+  - kg_raw     KG triples extracted without coreference resolution
+  - kg_coref   KG triples with Stanza coref (English only; null for other languages)
+  - source, lang, cefr
 
-The model learns: given KG triples of a passage → generate a question.
-This matches inference time where you extract the passage KG and ask for questions at a target level.
+Training scripts pick the fields they need. Coref ablation is just a field
+switch — no separate dataset build required.
 
-Output JSONL format:
-  {"input": "generate question level=B1: Beyoncé | born_in | Houston . Beyoncé | performed_with | Destiny's Child",
-   "target": "When did Beyoncé begin her solo career?",
-   "cefr": "B1", "lang": "en", "source": "squad"}
+Output JSONL:
+  {"passage": "...", "answer": "...", "question": "...",
+   "kg_raw": [["Beyoncé", "born_in", "Houston"], ...],
+   "kg_coref": [["Beyoncé", "perform_with", "Destiny's Child"], ...],
+   "source": "squad", "lang": "en", "cefr": "B1"}
 
-Split: 80% train / 20% eval at passage level (same passage never in both splits).
+Split: 80% train / 20% eval at passage level.
 
 Usage:
   python scripts/build_seq2seq_dataset.py --sources squad tydiqa --output-dir data/training
-  python scripts/build_seq2seq_dataset.py --sources nq --limit 5000 --max-passage-length 600
-  python scripts/build_seq2seq_dataset.py --sources squad_fi tydiqa --lang fi --output-dir data/training
+  python scripts/build_seq2seq_dataset.py --sources squad --limit 500 --verbose
 """
 from __future__ import annotations
 
@@ -38,7 +37,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from knowledge_graph.extractor import KnowledgeGraphExtractor, Triple
 from question_generation.difficulty import RuleBasedEstimator
-from question_generation.methods.seq2seq.linearizer import linearize
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +79,7 @@ def _tydiqa_samples(
     for s in ds:
         if not s["answers"]["text"]:
             continue
-        raw_lang = s["id"].split("--")[0]  # e.g. "finnish--7633..."
+        raw_lang = s["id"].split("--")[0]
         lang = _LANG_MAP.get(raw_lang, raw_lang[:2])
         if lang_filter and lang != lang_filter:
             continue
@@ -97,11 +95,7 @@ def _tydiqa_samples(
 def _nq_samples(
     limit: int | None, lang_filter: str | None
 ) -> Iterator[tuple[str, str, str, str, int, str]]:
-    """Natural Questions — English only.
-
-    Reconstructs passage from the long-answer token span (filtering HTML tokens).
-    Uses the first annotator that provides both a long answer and a short answer.
-    """
+    """Natural Questions — English only."""
     if lang_filter and lang_filter != "en":
         return
     from datasets import load_dataset
@@ -150,7 +144,7 @@ def _nq_samples(
 def _squad_fi_samples(
     limit: int | None, lang_filter: str | None
 ) -> Iterator[tuple[str, str, str, str, int, str]]:
-    """SQuAD v2 machine-translated to Finnish. Same format as SQuAD v2."""
+    """SQuAD v2 machine-translated to Finnish."""
     if lang_filter and lang_filter != "fi":
         return
     from datasets import load_dataset
@@ -159,7 +153,7 @@ def _squad_fi_samples(
     count = 0
     for s in ds:
         if not s["answers"]["text"]:
-            continue  # unanswerable
+            continue
         yield (
             s["id"], s["context"], s["question"],
             s["answers"]["text"][0], s["answers"]["answer_start"][0], "fi",
@@ -197,6 +191,10 @@ def _sentences_around(context: str, answer_start: int, window: int = 2) -> str:
     return " ".join(sentences[start:end])
 
 
+def _triples_to_list(triples: list[Triple]) -> list[list[str]]:
+    return [[t.subject, t.relation, t.object] for t in triples]
+
+
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
@@ -204,11 +202,10 @@ def _sentences_around(context: str, answer_start: int, window: int = 2) -> str:
 def build(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     estimator = RuleBasedEstimator()
+    # One extractor per language; coref enabled for English (extract_both uses one pass)
     extractors: dict[str, KnowledgeGraphExtractor] = {}
 
-    # Collect records per language: {lang: [(passage_id, record)]}
     by_lang: dict[str, list[tuple[str, dict]]] = defaultdict(list)
-
     total_in = total_filtered_len = total_no_triples = total_ok = 0
 
     for source in args.sources:
@@ -225,47 +222,51 @@ def build(args: argparse.Namespace) -> None:
 
             if lang not in extractors:
                 print(f"  initialising KG extractor for lang={lang}...", flush=True)
-                extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=args.coref)
+                extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=(lang == "en"))
 
-            triples = extractors[lang].extract(context)
-            if len(triples) < args.min_triples:
+            triples_raw, triples_coref = extractors[lang].extract_both(context)
+
+            if len(triples_raw) < args.min_triples:
                 total_no_triples += 1
                 continue
 
-            # Limit triples to cap model input length
-            selected_triples = triples[: args.max_triples]
+            raw = triples_raw[: args.max_triples]
+            coref = triples_coref[: args.max_triples]
 
             s_read = estimator.score_readability(context)
             s_type = estimator.score_type("object")
             cefr = estimator.estimate(s_type, 0.2, 0.0, s_read)
 
             record = {
-                "input": linearize(selected_triples, cefr),
-                "target": question,
-                "cefr": cefr,
-                "lang": lang,
+                "passage": context,
+                "answer": answer,
+                "question": question,
+                "kg_raw": _triples_to_list(raw),
+                "kg_coref": _triples_to_list(coref) if lang == "en" else None,
                 "source": source,
-                "coref_resolved": args.coref,
+                "lang": lang,
+                "cefr": cefr,
             }
 
             if args.verbose:
                 window = _sentences_around(context, answer_start)
                 ans_lower = answer.lower()
                 print(f"\n{'─'*60}")
-                print(f"PASSAGE ({len(context)} chars, showing ±2 sentences around answer):")
+                print(f"PASSAGE ({len(context)} chars, ±2 sentences around answer):")
                 print(f"  {window}")
                 print(f"\nANSWER: {answer!r}")
-                print(f"\nFULL KG ({len(triples)} triples, using first {len(selected_triples)}):")
-                for t in selected_triples:
+                print(f"\nKG_RAW ({len(triples_raw)} triples, using first {len(raw)}):")
+                for t in raw:
                     subj_l = t.subject.lower()
                     obj_l = t.object.lower()
                     subj_covers = subj_l in ans_lower or ans_lower in subj_l
                     obj_covers = obj_l in ans_lower or ans_lower in obj_l
-                    if subj_covers or obj_covers:
-                        marker = " ◄ answer"
-                    else:
-                        marker = ""
+                    marker = " ◄ answer" if subj_covers or obj_covers else ""
                     print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}{marker}")
+                if lang == "en":
+                    print(f"\nKG_COREF (resolved):")
+                    for t in coref:
+                        print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}")
                 print(f"\nCEFR: {cefr}  (readability={s_read:.2f})")
                 print(f"TARGET: {question}")
 
@@ -316,75 +317,22 @@ def build(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build seq2seq QG training data from SQuAD, NQ, and TyDiQA."
+        description="Build unified QG training data from SQuAD and TyDiQA."
     )
     parser.add_argument(
         "--sources",
         nargs="+",
         choices=list(_LOADERS),
         default=["squad", "tydiqa"],
-        help="Datasets to load (default: squad tydiqa).",
     )
-    parser.add_argument(
-        "--output-dir",
-        default="data/training",
-        help="Root output directory (default: data/training).",
-    )
-    parser.add_argument(
-        "--lang",
-        choices=["en", "fi"],
-        default=None,
-        help="Restrict to one language (default: all languages in each source).",
-    )
-    parser.add_argument(
-        "--max-passage-length",
-        type=int,
-        default=None,
-        metavar="CHARS",
-        help="Skip passages longer than CHARS characters (e.g. 600).",
-    )
-    parser.add_argument(
-        "--min-triples",
-        type=int,
-        default=2,
-        metavar="N",
-        help="Minimum KG triples required to keep a sample (default: 2).",
-    )
-    parser.add_argument(
-        "--max-triples",
-        type=int,
-        default=15,
-        metavar="N",
-        help="Max triples included in model input (default: 15, ~150 tokens).",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Max samples per source (useful for testing).",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for train/eval split (default: 42).",
-    )
-    parser.add_argument(
-        "--coref",
-        action="store_true",
-        help=(
-            "Enable Stanza coreference resolution (English only). "
-            "Replaces pronoun subjects/objects with their antecedent. "
-            "Requires: stanza.download('en', processors='coref'). "
-            "Use this flag to build the coref-resolved ablation dataset."
-        ),
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Print passage, full KG, and CEFR for each sample.",
-    )
+    parser.add_argument("--output-dir", default="data/training")
+    parser.add_argument("--lang", choices=["en", "fi"], default=None)
+    parser.add_argument("--max-passage-length", type=int, default=None, metavar="CHARS")
+    parser.add_argument("--min-triples", type=int, default=2, metavar="N")
+    parser.add_argument("--max-triples", type=int, default=15, metavar="N")
+    parser.add_argument("--limit", type=int, default=None, metavar="N")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     random.seed(args.seed)
     build(args)
