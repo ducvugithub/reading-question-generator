@@ -222,7 +222,8 @@ def build(args: argparse.Namespace) -> None:
 
             if lang not in extractors:
                 print(f"  initialising KG extractor for lang={lang}...", flush=True)
-                extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=(lang == "en"))
+                use_coref = (lang == "en") and not args.no_coref
+                extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=use_coref)
 
             triples_raw, triples_coref = extractors[lang].extract_both(context)
 
@@ -231,7 +232,7 @@ def build(args: argparse.Namespace) -> None:
                 continue
 
             raw = triples_raw[: args.max_triples]
-            coref = triples_coref[: args.max_triples]
+            coref = triples_coref[: args.max_triples] if not args.no_coref else None
 
             s_read = estimator.score_readability(context)
             s_type = estimator.score_type("object")
@@ -242,7 +243,7 @@ def build(args: argparse.Namespace) -> None:
                 "answer": answer,
                 "question": question,
                 "kg_raw": _triples_to_list(raw),
-                "kg_coref": _triples_to_list(coref) if lang == "en" else None,
+                "kg_coref": _triples_to_list(coref) if (lang == "en" and coref is not None) else None,
                 "source": source,
                 "lang": lang,
                 "cefr": cefr,
@@ -332,6 +333,8 @@ def main() -> None:
     parser.add_argument("--max-triples", type=int, default=15, metavar="N")
     parser.add_argument("--limit", type=int, default=None, metavar="N")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--no-coref", action="store_true",
+                        help="Skip coreference resolution (kg_coref will be null).")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     random.seed(args.seed)
