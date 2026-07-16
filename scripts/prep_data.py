@@ -13,7 +13,10 @@ def main():
     print("  tydiqa ...", flush=True)
     load_dataset("google-research-datasets/tydiqa", "secondary_task", split="train")
     print("  SQuAD_v2_fi ...", flush=True)
-    load_dataset("ilmariky/SQuAD_v2_fi", split="train")
+    try:
+        load_dataset("ilmariky/SQuAD_v2_fi", split="train", trust_remote_code=True)
+    except Exception as e:
+        print(f"  WARNING: SQuAD_v2_fi failed ({e.__class__.__name__}), skipping.", flush=True)
 
     print("=== Downloading Stanza models ===", flush=True)
     import stanza
