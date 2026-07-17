@@ -477,7 +477,7 @@ def _resolve_coref(doc, triples: list[Triple]) -> list[Triple]:
     # If the same pronoun appears in multiple chains (rare), last one wins.
     coref_map: dict[str, str] = {}
     for chain in doc.coref:
-        rep = chain.representative_mention.text
+        rep = chain.representative_text
         for mention in chain.mentions:
             if mention.text.lower() in _PRONOUNS:
                 coref_map[mention.text.lower()] = rep
