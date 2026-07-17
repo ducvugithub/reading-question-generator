@@ -62,13 +62,17 @@ class KnowledgeGraphExtractor:
     def extract_both(self, text: str) -> tuple[list[Triple], list[Triple]]:
         """Return (raw_triples, coref_triples) in one pipeline pass.
         For non-English or when coref=False, coref_triples is the same list as raw_triples.
+        On passages where the coref model raises ValueError (blank token), falls back
+        to raw-only extraction so the sample is not lost.
         """
-        doc = self._pipeline()(text)
-        raw: list[Triple] = []
-        for sent_idx, sentence in enumerate(doc.sentences):
-            entity_map, surface_map = _build_entity_map(sentence)
-            depth = _sentence_depth(sentence)
-            raw.extend(_extract_sentence(sentence, entity_map, surface_map, sent_idx, depth))
+        text = " ".join(text.split())  # collapse blank/multiple whitespace that trips the coref model
+        try:
+            doc = self._pipeline()(text)
+        except ValueError:
+            doc = self._pipeline_nocoref()(text)
+            raw = _triples_from_doc(doc)
+            return raw, raw
+        raw = _triples_from_doc(doc)
         if self.coref and self.lang == "en":
             return raw, _resolve_coref(doc, raw)
         return raw, raw
@@ -92,6 +96,28 @@ class KnowledgeGraphExtractor:
                 use_gpu=torch.cuda.is_available(),
             )
         return self._nlp
+
+    def _pipeline_nocoref(self) -> stanza.Pipeline:
+        """Fallback pipeline without coref — used when the coref model rejects a passage."""
+        if not hasattr(self, "_nlp_nocoref") or self._nlp_nocoref is None:
+            import torch
+            self._nlp_nocoref = stanza.Pipeline(
+                self.lang,
+                processors="tokenize,ner,pos,lemma,depparse",
+                use_gpu=torch.cuda.is_available(),
+            )
+        return self._nlp_nocoref
+
+
+# ── Doc-level helpers ─────────────────────────────────────────────────────────
+
+def _triples_from_doc(doc) -> list[Triple]:
+    triples: list[Triple] = []
+    for sent_idx, sentence in enumerate(doc.sentences):
+        entity_map, surface_map = _build_entity_map(sentence)
+        depth = _sentence_depth(sentence)
+        triples.extend(_extract_sentence(sentence, entity_map, surface_map, sent_idx, depth))
+    return triples
 
 
 # ── Entity map ────────────────────────────────────────────────────────────────

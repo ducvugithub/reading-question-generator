@@ -206,7 +206,7 @@ def build(args: argparse.Namespace) -> None:
     extractors: dict[str, KnowledgeGraphExtractor] = {}
 
     by_lang: dict[str, list[tuple[str, dict]]] = defaultdict(list)
-    total_in = total_filtered_len = total_no_triples = total_ok = 0
+    total_in = total_filtered_len = total_no_triples = total_ok = total_failed_kg = 0
 
     for source in args.sources:
         loader = _LOADERS[source]
@@ -225,14 +225,19 @@ def build(args: argparse.Namespace) -> None:
                 use_coref = (lang == "en") and not args.no_coref
                 extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=use_coref)
 
-            triples_raw, triples_coref = extractors[lang].extract_both(context)
+            try:
+                triples_raw, triples_coref = extractors[lang].extract_both(context)
+            except Exception as exc:
+                triples_raw, triples_coref = None, None
+                total_failed_kg += 1
+                print(f"  [kg-fail] {exc.__class__.__name__}: {exc}", flush=True)
 
-            if len(triples_raw) < args.min_triples:
+            if triples_raw is not None and len(triples_raw) < args.min_triples:
                 total_no_triples += 1
                 continue
 
-            raw = triples_raw[: args.max_triples]
-            coref = triples_coref[: args.max_triples] if not args.no_coref else None
+            raw = triples_raw[: args.max_triples] if triples_raw is not None else None
+            coref = triples_coref[: args.max_triples] if (triples_coref is not None and not args.no_coref) else None
 
             s_read = estimator.score_readability(context)
             s_type = estimator.score_type("object")
@@ -242,7 +247,7 @@ def build(args: argparse.Namespace) -> None:
                 "passage": context,
                 "answer": answer,
                 "question": question,
-                "kg_raw": _triples_to_list(raw),
+                "kg_raw": _triples_to_list(raw) if raw is not None else None,
                 "kg_coref": _triples_to_list(coref) if (lang == "en" and coref is not None) else None,
                 "source": source,
                 "lang": lang,
@@ -256,8 +261,10 @@ def build(args: argparse.Namespace) -> None:
                 print(f"PASSAGE ({len(context)} chars, ±2 sentences around answer):")
                 print(f"  {window}")
                 print(f"\nANSWER: {answer!r}")
-                print(f"\nKG_RAW ({len(triples_raw)} triples, using first {len(raw)}):")
-                for t in raw:
+                n_raw = len(triples_raw) if triples_raw else 0
+                n_shown = len(raw) if raw else 0
+                print(f"\nKG_RAW ({n_raw} triples, using first {n_shown}):")
+                for t in (raw or []):
                     subj_l = t.subject.lower()
                     obj_l = t.object.lower()
                     subj_covers = subj_l in ans_lower or ans_lower in subj_l
@@ -266,7 +273,7 @@ def build(args: argparse.Namespace) -> None:
                     print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}{marker}")
                 if lang == "en":
                     print(f"\nKG_COREF (resolved):")
-                    for t in coref:
+                    for t in (coref or []):
                         print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}")
                 print(f"\nCEFR: {cefr}  (readability={s_read:.2f})")
                 print(f"TARGET: {question}")
@@ -283,6 +290,7 @@ def build(args: argparse.Namespace) -> None:
     print(
         f"\nSummary: {total_in} in → "
         f"{total_filtered_len} too-long, {total_no_triples} too-few-triples, "
+        f"{total_failed_kg} kg-failed (stored with null kg), "
         f"{total_ok} written"
     )
 
