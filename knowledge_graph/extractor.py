@@ -479,7 +479,8 @@ def _resolve_coref(doc, triples: list[Triple]) -> list[Triple]:
     for chain in doc.coref:
         rep = chain.representative_text
         for mention in chain.mentions:
-            mention_text = " ".join(w.text for w in mention.words)
+            sent = doc.sentences[mention.sentence]
+            mention_text = " ".join(w.text for w in sent.words[mention.start_word:mention.end_word])
             if mention_text.lower() in _PRONOUNS:
                 coref_map[mention_text.lower()] = rep
 
