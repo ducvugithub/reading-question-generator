@@ -26,10 +26,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import random
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Iterator
 
@@ -199,93 +198,122 @@ def _triples_to_list(triples: list[Triple]) -> list[list[str]]:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
+def _is_train(passage_id: str) -> bool:
+    """Deterministic 80/20 passage-level split via MD5 hash — no in-memory accumulation."""
+    return int(hashlib.md5(passage_id.encode()).hexdigest(), 16) % 10 < 8
+
+
 def build(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     estimator = RuleBasedEstimator()
-    # One extractor per language; coref enabled for English (extract_both uses one pass)
     extractors: dict[str, KnowledgeGraphExtractor] = {}
 
-    by_lang: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+    # Stream records directly to disk — one (train, eval) file pair per language
+    out_files: dict[str, tuple] = {}  # lang → (train_fh, eval_fh)
+    counts: dict[str, list[int]] = {}  # lang → [n_train, n_eval]
+
     total_in = total_filtered_len = total_no_triples = total_ok = total_failed_kg = 0
 
-    for source in args.sources:
-        loader = _LOADERS[source]
-        print(f"[{source}] loading...", flush=True)
-        source_count = 0
+    try:
+        for source in args.sources:
+            loader = _LOADERS[source]
+            print(f"[{source}] loading...", flush=True)
+            source_count = 0
 
-        for passage_id, context, question, answer, answer_start, lang in loader(args.limit, args.lang):
-            total_in += 1
+            for passage_id, context, question, answer, answer_start, lang in loader(args.limit, args.lang):
+                total_in += 1
 
-            if args.max_passage_length and len(context) > args.max_passage_length:
-                total_filtered_len += 1
-                continue
+                if args.max_passage_length and len(context) > args.max_passage_length:
+                    total_filtered_len += 1
+                    continue
 
-            if lang not in extractors:
-                print(f"  initialising KG extractor for lang={lang}...", flush=True)
-                use_coref = (lang == "en") and not args.no_coref
-                extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=use_coref)
+                if lang not in extractors:
+                    print(f"  initialising KG extractor for lang={lang}...", flush=True)
+                    use_coref = (lang == "en") and not args.no_coref
+                    extractors[lang] = KnowledgeGraphExtractor(lang=lang, coref=use_coref)
 
-            try:
-                triples_raw, triples_coref = extractors[lang].extract_both(context)
-            except Exception as exc:
-                triples_raw, triples_coref = None, None
-                total_failed_kg += 1
-                print(f"  [kg-fail] {exc.__class__.__name__}: {exc}", flush=True)
+                if lang not in out_files:
+                    lang_dir = output_dir / lang
+                    lang_dir.mkdir(parents=True, exist_ok=True)
+                    out_files[lang] = (
+                        open(lang_dir / "train.jsonl", "w", encoding="utf-8"),
+                        open(lang_dir / "eval.jsonl",  "w", encoding="utf-8"),
+                    )
+                    counts[lang] = [0, 0]
 
-            if triples_raw is not None and len(triples_raw) < args.min_triples:
-                total_no_triples += 1
-                continue
+                try:
+                    triples_raw, triples_coref = extractors[lang].extract_both(context)
+                except Exception as exc:
+                    triples_raw, triples_coref = None, None
+                    total_failed_kg += 1
+                    print(f"  [kg-fail] {exc.__class__.__name__}: {exc}", flush=True)
 
-            raw = triples_raw[: args.max_triples] if triples_raw is not None else None
-            coref = triples_coref[: args.max_triples] if (triples_coref is not None and not args.no_coref) else None
+                if triples_raw is not None and len(triples_raw) < args.min_triples:
+                    total_no_triples += 1
+                    continue
 
-            s_read = estimator.score_readability(context)
-            s_type = estimator.score_type("object")
-            cefr = estimator.estimate(s_type, 0.2, 0.0, s_read)
+                raw   = triples_raw[:args.max_triples]   if triples_raw   is not None else None
+                coref = triples_coref[:args.max_triples] if (triples_coref is not None and not args.no_coref) else None
 
-            record = {
-                "passage": context,
-                "answer": answer,
-                "question": question,
-                "kg_raw": _triples_to_list(raw) if raw is not None else None,
-                "kg_coref": _triples_to_list(coref) if (lang == "en" and coref is not None) else None,
-                "source": source,
-                "lang": lang,
-                "cefr": cefr,
-            }
+                s_read = estimator.score_readability(context)
+                s_type = estimator.score_type("object")
+                cefr   = estimator.estimate(s_type, 0.2, 0.0, s_read)
 
-            if args.verbose:
-                window = _sentences_around(context, answer_start)
-                ans_lower = answer.lower()
-                print(f"\n{'─'*60}")
-                print(f"PASSAGE ({len(context)} chars, ±2 sentences around answer):")
-                print(f"  {window}")
-                print(f"\nANSWER: {answer!r}")
-                n_raw = len(triples_raw) if triples_raw else 0
-                n_shown = len(raw) if raw else 0
-                print(f"\nKG_RAW ({n_raw} triples, using first {n_shown}):")
-                for t in (raw or []):
-                    subj_l = t.subject.lower()
-                    obj_l = t.object.lower()
-                    subj_covers = subj_l in ans_lower or ans_lower in subj_l
-                    obj_covers = obj_l in ans_lower or ans_lower in obj_l
-                    marker = " ◄ answer" if subj_covers or obj_covers else ""
-                    print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}{marker}")
-                if lang == "en":
-                    print(f"\nKG_COREF (resolved):")
-                    for t in (coref or []):
-                        print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}")
-                print(f"\nCEFR: {cefr}  (readability={s_read:.2f})")
-                print(f"TARGET: {question}")
+                record = {
+                    "passage":  context,
+                    "answer":   answer,
+                    "question": question,
+                    "kg_raw":   _triples_to_list(raw)   if raw   is not None else None,
+                    "kg_coref": _triples_to_list(coref) if (lang == "en" and coref is not None) else None,
+                    "source": source,
+                    "lang":   lang,
+                    "cefr":   cefr,
+                }
 
-            by_lang[lang].append((passage_id, record))
-            total_ok += 1
-            source_count += 1
+                if args.verbose:
+                    window = _sentences_around(context, answer_start)
+                    ans_lower = answer.lower()
+                    print(f"\n{'─'*60}")
+                    print(f"PASSAGE ({len(context)} chars, ±2 sentences around answer):")
+                    print(f"  {window}")
+                    print(f"\nANSWER: {answer!r}")
+                    n_raw   = len(triples_raw) if triples_raw else 0
+                    n_shown = len(raw)         if raw         else 0
+                    print(f"\nKG_RAW ({n_raw} triples, using first {n_shown}):")
+                    for t in (raw or []):
+                        subj_l = t.subject.lower()
+                        obj_l  = t.object.lower()
+                        marker = " ◄ answer" if (subj_l in ans_lower or ans_lower in subj_l
+                                                  or obj_l in ans_lower or ans_lower in obj_l) else ""
+                        print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}{marker}")
+                    if lang == "en":
+                        print(f"\nKG_COREF (resolved):")
+                        for t in (coref or []):
+                            print(f"  {t.subject!r:30s} | {t.relation:25s} | {t.object!r}")
+                    print(f"\nCEFR: {cefr}  (readability={s_read:.2f})")
+                    print(f"TARGET: {question}")
 
-            if not args.verbose and source_count % 500 == 0:
-                print(f"  [{source}] processed {source_count} samples", flush=True)
+                ft, fe = out_files[lang]
+                line = json.dumps(record, ensure_ascii=False) + "\n"
+                if _is_train(passage_id):
+                    ft.write(line)
+                    counts[lang][0] += 1
+                else:
+                    fe.write(line)
+                    counts[lang][1] += 1
 
-        print(f"[{source}] done: {source_count} records kept", flush=True)
+                total_ok += 1
+                source_count += 1
+
+                if not args.verbose and source_count % 500 == 0:
+                    print(f"  [{source}] processed {source_count} samples", flush=True)
+
+            print(f"[{source}] done: {source_count} records kept", flush=True)
+
+    finally:
+        for ft, fe in out_files.values():
+            ft.close()
+            fe.close()
 
     print(
         f"\nSummary: {total_in} in → "
@@ -293,31 +321,8 @@ def build(args: argparse.Namespace) -> None:
         f"{total_failed_kg} kg-failed (stored with null kg), "
         f"{total_ok} written"
     )
-
-    # Passage-level 80/20 split per language
-    for lang, items in by_lang.items():
-        passage_ids = list({pid for pid, _ in items})
-        random.shuffle(passage_ids)
-        split = int(len(passage_ids) * 0.8)
-        train_ids = set(passage_ids[:split])
-
-        lang_dir = output_dir / lang
-        lang_dir.mkdir(parents=True, exist_ok=True)
-        train_path = lang_dir / "train.jsonl"
-        eval_path = lang_dir / "eval.jsonl"
-
-        n_train = n_eval = 0
-        with open(train_path, "w", encoding="utf-8") as ft, \
-             open(eval_path, "w", encoding="utf-8") as fe:
-            for pid, record in items:
-                if pid in train_ids:
-                    ft.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    n_train += 1
-                else:
-                    fe.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    n_eval += 1
-
-        print(f"[{lang}] → {train_path} ({n_train} train) | {eval_path} ({n_eval} eval)")
+    for lang, (n_train, n_eval) in counts.items():
+        print(f"  {lang}: {n_train} train / {n_eval} eval")
 
 
 # ---------------------------------------------------------------------------
