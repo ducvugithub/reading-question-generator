@@ -199,9 +199,13 @@ def _triples_to_list(triples: list[Triple]) -> list[list[str]]:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def _is_train(passage_id: str) -> bool:
-    """Deterministic 80/20 passage-level split via MD5 hash — no in-memory accumulation."""
-    return int(hashlib.md5(passage_id.encode()).hexdigest(), 16) % 10 < 8
+def _is_train(passage: str) -> bool:
+    """Deterministic 80/20 passage-level split via MD5 hash.
+
+    Hashes the passage text so all questions from the same passage land in
+    the same split — prevents leakage when multiple QA pairs share a passage.
+    """
+    return int(hashlib.md5(passage.encode()).hexdigest(), 16) % 10 < 8
 
 
 def build(args: argparse.Namespace) -> None:
@@ -221,7 +225,7 @@ def build(args: argparse.Namespace) -> None:
             print(f"[{source}] loading...", flush=True)
             source_count = 0
 
-            for passage_id, context, question, answer, answer_start, lang in loader(args.limit, args.lang):
+            for _, context, question, answer, answer_start, lang in loader(args.limit, args.lang):
                 total_in += 1
 
                 if args.max_passage_length and len(context) > args.max_passage_length:
@@ -296,7 +300,7 @@ def build(args: argparse.Namespace) -> None:
 
                 ft, fe = out_files[lang]
                 line = json.dumps(record, ensure_ascii=False) + "\n"
-                if _is_train(passage_id):
+                if _is_train(context):
                     ft.write(line)
                     counts[lang][0] += 1
                 else:
