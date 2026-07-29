@@ -344,7 +344,7 @@ def main() -> None:
     parser.add_argument("--lang", choices=["en", "fi"], default=None)
     parser.add_argument("--max-passage-length", type=int, default=None, metavar="CHARS")
     parser.add_argument("--min-triples", type=int, default=2, metavar="N")
-    parser.add_argument("--max-triples", type=int, default=15, metavar="N")
+    parser.add_argument("--max-triples", type=int, default=50, metavar="N")
     parser.add_argument("--limit", type=int, default=None, metavar="N")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-coref", action="store_true",
