@@ -17,10 +17,10 @@ env/
 stanza_resources/
 
 # Generated outputs
-data/output/
+data/
 
-# Word frequency files
-data/*/vocab/
+# Trained models
+models/
 
 # OS
 .DS_Store

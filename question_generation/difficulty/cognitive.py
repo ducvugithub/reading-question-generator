@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-import re
 from abc import ABC, abstractmethod
+
+from langchain_core.messages import HumanMessage, SystemMessage
 
 _PRONOUNS = frozenset({
     "i", "me", "my", "we", "our", "us",
@@ -145,36 +146,91 @@ class GraphCognitiveDifficultyEstimator(CognitiveDifficultyEstimator):
         return min(len(kg_raw) / 15.0, 1.0)
 
 
-class LLMCognitiveDifficultyEstimator(CognitiveDifficultyEstimator):
+class LLMCognitiveDifficultyJudge(CognitiveDifficultyEstimator):
     """
-    LLM-based estimator — useful for generating ground-truth labels or
-    auditing the rule-based estimator on a sample.
+    LLM-as-judge producing a structured difficulty assessment stored as `llm_diff_judge`.
 
-    Expects an Anthropic client. Uses a cheap/fast model by default.
+    Four fields, two passage-level (fixed per passage) and two question-level:
+      passage_readability    — structural complexity: sentence length, discourse, cohesion
+      passage_vocab_diff     — lexical difficulty: rare/technical/domain words in the passage
+      question_cognitive_diff — reasoning demand: question type, explicitness, coreference, depth
+      question_vocab_diff    — lexical difficulty of the question wording itself
+
+    The primary training control signal is question_cognitive_diff.
+    question_vocab_diff is secondary. Passage fields are metadata.
+
+    Use judge() to get the full llm_diff_judge dict.
+    score()/estimate() return question_cognitive_diff for compatibility with the ABC.
     """
 
-    _PROMPT = """\
-You are an expert in language learning difficulty assessment.
+    _SYSTEM = """\
+You are an expert in educational assessment and reading comprehension difficulty.
+Given a passage, a question, its answer, and knowledge graph triples extracted from the passage,
+produce a structured difficulty assessment across four independent dimensions.
 
-Given a question, its answer, and knowledge graph triples from the passage, \
-estimate the COGNITIVE difficulty of the question.
+━━━ PASSAGE-LEVEL (evaluate the passage text) ━━━
 
-Cognitive difficulty = how hard is the reasoning required, not vocabulary level:
-  easy   (0.0–0.33) — direct factual recall; answer is stated explicitly
-  medium (0.33–0.67) — requires connecting facts, multi-step reasoning, or pronoun resolution
-  hard   (0.67–1.0) — causal/procedural reasoning, abstract inference, or no direct KG evidence
+1. passage_readability (0.0–1.0)
+   How complex is the passage structure — sentence length, subordinate clauses, discourse cohesion?
+   0.0 = short, simple sentences, direct narrative
+   0.5 = moderate complexity, some embedded clauses
+   1.0 = long, dense, heavily nested or abstract prose
 
+2. passage_vocab_diff (0.0–1.0)
+   How rare or domain-specific is the vocabulary in the passage?
+   0.0 = everyday common words only
+   0.5 = some technical or low-frequency words
+   1.0 = highly specialised, rare, or domain-specific throughout
+
+━━━ QUESTION-LEVEL (evaluate the question + answer pair) ━━━
+
+3. question_cognitive_diff (0.0–1.0)
+   How demanding is the reasoning required to answer?
+   Consider: question word (why/how > what/who > when/where), whether the answer is
+   explicitly in the passage or must be inferred, how many reasoning steps are needed,
+   and whether pronoun/coreference resolution is required.
+   0.0 = single direct lookup, answer word-for-word in passage, no pronouns
+   0.5 = two-step reasoning, or one pronoun to resolve, or answer combines two facts
+   1.0 = causal/procedural reasoning, deep inference, answer absent from passage
+
+4. question_vocab_diff (0.0–1.0)
+   How rare or technical are the words in the question itself?
+   0.0 = question uses only common words
+   0.5 = one or two technical/uncommon terms
+   1.0 = question is phrased in specialised or academic vocabulary
+
+Think step by step, then output a single JSON object."""
+
+    _USER = """\
 Question : {question}
 Answer   : {answer}
+Passage  : {passage}
 KG triples (subject | relation | object):
 {triples}
 
-Reply with ONLY a JSON object — no prose, no markdown:
-{{"score": <float 0-1>, "label": "<easy|medium|hard>", "reasoning": "<one sentence>"}}"""
+Reply with ONLY valid JSON — no prose, no markdown fences:
+{{
+  "reasoning": "<3-4 sentences covering passage structure, answer explicitness, reasoning steps needed>",
+  "passage_readability":     <float 0-1>,
+  "passage_vocab_diff":      <float 0-1>,
+  "question_cognitive_diff": <float 0-1>,
+  "question_vocab_diff":     <float 0-1>
+}}"""
 
-    def __init__(self, client, model: str = "claude-haiku-4-5-20251001") -> None:
-        self._client = client
-        self._model = model
+    def __init__(self, llm) -> None:
+        """
+        Args:
+            llm: Any LangChain BaseChatModel — e.g. ChatBedrockConverse, ChatAnthropic.
+                 Create via the project's llm_factory or directly:
+                   from langchain_aws import ChatBedrockConverse
+                   llm = ChatBedrockConverse(
+                       model="anthropic.claude-haiku-4-5-20251001-v1:0",
+                       region_name="us-east-1",
+                       max_tokens=400,
+                       temperature=0.0,
+                   )
+        """
+        self._llm = llm
 
     def score(
         self,
@@ -182,8 +238,9 @@ Reply with ONLY a JSON object — no prose, no markdown:
         answer: str,
         kg_raw: list[list[str]],
         kg_coref: list[list[str]] | None = None,
+        passage: str = "",
     ) -> float:
-        return self.estimate_full(question, answer, kg_raw, kg_coref)["score"]
+        return self.judge(question, answer, kg_raw, kg_coref, passage)["question_cognitive_diff"]
 
     def estimate(
         self,
@@ -191,26 +248,63 @@ Reply with ONLY a JSON object — no prose, no markdown:
         answer: str,
         kg_raw: list[list[str]],
         kg_coref: list[list[str]] | None = None,
+        passage: str = "",
     ) -> dict:
-        return self.estimate_full(question, answer, kg_raw, kg_coref)
+        s = self.judge(question, answer, kg_raw, kg_coref, passage)["question_cognitive_diff"]
+        return {"score": s, "label": _label(s)}
 
-    def estimate_full(
+    def judge(
         self,
         question: str,
         answer: str,
         kg_raw: list[list[str]],
         kg_coref: list[list[str]] | None = None,
+        passage: str = "",
     ) -> dict:
-        triples = kg_coref or kg_raw
-        triples_str = "\n".join(f"  {t[0]} | {t[1]} | {t[2]}" for t in triples)
-        prompt = self._PROMPT.format(
-            question=question, answer=answer, triples=triples_str
+        """Return the full llm_diff_judge dict with all four fields."""
+        triples = kg_coref or kg_raw or []
+        triples_str = "\n".join(f"  {t[0]} | {t[1]} | {t[2]}" for t in triples) or "  (none)"
+        user_msg = self._USER.format(
+            question=question,
+            answer=answer,
+            passage=passage,
+            triples=triples_str,
         )
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        result = json.loads(response.content[0].text)
-        result["label"] = _label(result["score"])
-        return result
+        response = self._llm.invoke([
+            SystemMessage(content=self._SYSTEM),
+            HumanMessage(content=user_msg),
+        ])
+        from question_generation.difficulty.annotator import _extract_text, _parse_json
+        return _parse_json(_extract_text(response))
+
+    def batch_judge(
+        self,
+        records: list[dict],
+        passage_key: str = "passage",
+        question_key: str = "question",
+        answer_key: str = "answer",
+        kg_raw_key: str = "kg_raw",
+        kg_coref_key: str = "kg_coref",
+        on_error: str = "skip",
+    ) -> list[dict | None]:
+        """Annotate a list of dataset records."""
+        results = []
+        for rec in records:
+            try:
+                results.append(self.judge(
+                    question=rec[question_key],
+                    answer=rec[answer_key],
+                    kg_raw=rec.get(kg_raw_key) or [],
+                    kg_coref=rec.get(kg_coref_key),
+                    passage=rec.get(passage_key, ""),
+                ))
+            except Exception:
+                if on_error == "skip":
+                    results.append(None)
+                else:
+                    raise
+        return results
+
+
+# Backwards-compat alias
+LLMCognitiveDifficultyEstimator = LLMCognitiveDifficultyJudge

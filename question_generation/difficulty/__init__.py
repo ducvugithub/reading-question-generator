@@ -4,10 +4,14 @@ from question_generation.difficulty.cefr_readability import CefrReadability
 from question_generation.difficulty.cognitive import (
     CognitiveDifficultyEstimator,
     GraphCognitiveDifficultyEstimator,
-    LLMCognitiveDifficultyEstimator,
+    LLMCognitiveDifficultyJudge,
+    LLMCognitiveDifficultyEstimator,  # backwards-compat alias
 )
+from question_generation.difficulty.annotator import DifficultyAnnotator
 
 __all__ = [
     "DifficultyEstimator", "RuleBasedEstimator", "CefrReadability", "LEVELS", "LEVEL_ORDER",
-    "CognitiveDifficultyEstimator", "GraphCognitiveDifficultyEstimator", "LLMCognitiveDifficultyEstimator",
+    "CognitiveDifficultyEstimator", "GraphCognitiveDifficultyEstimator",
+    "LLMCognitiveDifficultyJudge", "LLMCognitiveDifficultyEstimator",
+    "DifficultyAnnotator",
 ]
