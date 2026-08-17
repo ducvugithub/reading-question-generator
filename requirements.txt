@@ -20,3 +20,5 @@ langchain-openai>=0.3
 sentencepiece>=0.1.99
 evaluate>=0.4
 rouge_score>=0.1
+xgboost>=2.0
+scikit-learn>=1.4

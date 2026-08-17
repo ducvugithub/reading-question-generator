@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument("--model-type",  required=True, choices=["m1", "m2", "m3", "m4"])
     parser.add_argument("--langs",       nargs="+", default=["en"])
     parser.add_argument("--data-dir",    default="data/t5")
-    parser.add_argument("--output-dir",  default="models/qg")
+    parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")
     parser.add_argument("--epochs",      type=int,   default=3)
     parser.add_argument("--batch-size",  type=int,   default=8)

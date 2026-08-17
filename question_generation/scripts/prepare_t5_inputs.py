@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Convert annotated JSONL → T5 input/output format for M1–M4.
+Convert annotated JSONL → T5 input/output format for M1–M5.
 
 Accepts one or more JSONL input files, combines them, and deterministically
 splits by passage into train/val/test using MD5 hashing.
@@ -10,23 +10,20 @@ Input formats per model type:
   M2: generate question: difficulty: {EASY|MEDIUM|HARD} passage: {passage} answer: {answer}
   M3: generate question: passage: {passage} answer: {answer} triples: {s|r|o ; ...}
   M4: generate question: difficulty: {EASY|MEDIUM|HARD} passage: {passage} answer: {answer} triples: {s|r|o ; ...}
+  M5: generate question: difficulty: {EASY|MEDIUM|HARD} passage: {passage} answer: {answer}
+      (same format as M2, but trained on SQuAD→EASY + RACE-middle→MEDIUM + RACE-high→HARD
+       using curriculum-grounded labels instead of haiku_cog annotations)
 
 Usage:
-  # Both train and eval as input, auto-split 80/10/10
-  python scripts/data_prep/prepare_t5_inputs.py \\
-    --inputs data/training/en/train.jsonl data/training/en/eval.jsonl \\
+  # M1–M4 from annotated JSONL files
+  python question_generation/scripts/prepare_t5_inputs.py \\
+    --inputs data/raw_data/en/train.jsonl data/raw_data/en/eval.jsonl \\
     --model-types m1 m2 m3 m4
 
-  # Only annotated eval set, split 80/10/10
-  python scripts/data_prep/prepare_t5_inputs.py \\
-    --inputs data/training/en/eval.jsonl \\
-    --model-types m1 m2 m3 m4
-
-  # Custom split ratios (train/val/test)
-  python scripts/data_prep/prepare_t5_inputs.py \\
-    --inputs data/training/en/eval.jsonl \\
-    --split 0.8 0.1 0.1 \\
-    --model-types m1 m2 m3 m4
+  # M5: SQuAD inputs (--inputs) + RACE loaded automatically from HuggingFace
+  python question_generation/scripts/prepare_t5_inputs.py \\
+    --inputs data/raw_data/en/train.jsonl data/raw_data/en/eval.jsonl \\
+    --model-types m5
 """
 from __future__ import annotations
 
@@ -65,11 +62,38 @@ def _format_triples(kg_coref: list | None, kg_raw: list | None) -> str:
     return " ; ".join(f"{t[0]} | {t[1]} | {t[2]}" for t in triples[:_MAX_TRIPLES])
 
 
+def _load_race_records() -> list[dict]:
+    """Load RACE-middle (MEDIUM) and RACE-high (HARD) for M5 training."""
+    from datasets import load_dataset
+
+    letter_to_idx = {"A": 0, "B": 1, "C": 2, "D": 3}
+    records: list[dict] = []
+    for subset, difficulty in [("middle", "MEDIUM"), ("high", "HARD")]:
+        print(f"  loading RACE-{subset} → {difficulty}...", flush=True)
+        ds = load_dataset("ehovy/race", subset, split="train")
+        n = 0
+        for rec in ds:
+            idx = letter_to_idx.get(rec["answer"])
+            if idx is None or idx >= len(rec["options"]):
+                continue
+            records.append({
+                "passage":               rec["article"],
+                "answer":                rec["options"][idx],
+                "question":              rec["question"],
+                "curriculum_difficulty": difficulty,
+                "lang":                  "en",
+                "generated":             False,
+            })
+            n += 1
+        print(f"    {n} records", flush=True)
+    return records
+
+
 def _format_input(model_type: str, passage: str, answer: str, difficulty: str, triples_str: str) -> str:
     base = f"passage: {passage} answer: {answer}"
     if model_type == "m1":
         return f"generate question: {base}"
-    if model_type == "m2":
+    if model_type in ("m2", "m5"):
         return f"generate question: difficulty: {difficulty} {base}"
     if model_type == "m3":
         return f"generate question: {base} triples: {triples_str}"
@@ -79,9 +103,9 @@ def _format_input(model_type: str, passage: str, answer: str, difficulty: str, t
 
 
 def prepare(args: argparse.Namespace) -> None:
-    train_r, val_r, test_r = args.split
+    train_r, val_r, _ = args.split
 
-    # Load all records from all input files
+    # Load annotated JSONL records (SQuAD/TyDiQA)
     all_records: list[dict] = []
     for path in args.inputs:
         p = Path(path)
@@ -91,26 +115,37 @@ def prepare(args: argparse.Namespace) -> None:
         records = [json.loads(l) for l in p.open(encoding="utf-8") if l.strip()]
         all_records.extend(records)
         print(f"  loaded {len(records)} records from {path}")
+    print(f"Total annotated records: {len(all_records)}")
 
-    print(f"Total records loaded: {len(all_records)}")
+    # Load RACE once if M5 is requested
+    race_records: list[dict] = []
+    if "m5" in args.model_types:
+        print("Loading RACE for M5...", flush=True)
+        race_records = _load_race_records()
+        print(f"Total RACE records: {len(race_records)}", flush=True)
 
     for model_type in args.model_types:
         out_dir = Path(args.output_dir) / model_type
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        splits = {"train": [], "val": [], "test": []}
+        # M5 uses SQuAD (→ EASY) + RACE (→ MEDIUM/HARD); others use annotated records only
+        source_records = (all_records + race_records) if model_type == "m5" else all_records
+
+        splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
         n_skipped = 0
 
-        for rec in all_records:
-            judge_scores = rec.get("llm_diff_judge", {}).get(args.judge)
-            if judge_scores is None:
-                n_skipped += 1
-                continue
+        for rec in source_records:
+            if model_type == "m5":
+                # Curriculum label: RACE records carry it explicitly; SQuAD defaults to EASY
+                difficulty = rec.get("curriculum_difficulty", "EASY")
+            else:
+                judge_scores = rec.get("llm_diff_judge", {}).get(args.judge)
+                if judge_scores is None:
+                    n_skipped += 1
+                    continue
+                difficulty = _difficulty_label(judge_scores["question_cognitive_diff"])
 
-            cog = judge_scores["question_cognitive_diff"]
-            difficulty = _difficulty_label(cog)
             triples_str = _format_triples(rec.get("kg_coref"), rec.get("kg_raw"))
-
             out_rec = {
                 "input_text":  _format_input(model_type, rec["passage"], rec["answer"], difficulty, triples_str),
                 "target_text": rec["question"],
@@ -142,7 +177,7 @@ def main() -> None:
     parser.add_argument("--inputs",      nargs="+", required=True,
                         help="One or more annotated JSONL files")
     parser.add_argument("--model-types", nargs="+", default=["m1", "m2", "m3", "m4"],
-                        choices=["m1", "m2", "m3", "m4"])
+                        choices=["m1", "m2", "m3", "m4", "m5"])
     parser.add_argument("--split",       nargs=3,   type=float, default=[0.8, 0.1, 0.1],
                         metavar=("TRAIN", "VAL", "TEST"),
                         help="Train/val/test ratios (default: 0.8 0.1 0.1)")

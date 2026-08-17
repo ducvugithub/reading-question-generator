@@ -2,16 +2,23 @@
 """Download HuggingFace datasets and Stanza models to cache.
 Run once on the login node before submitting sbatch jobs.
 """
-import os
 import sys
 
 def main():
     print("=== Downloading HuggingFace datasets ===", flush=True)
     from datasets import load_dataset
+
     print("  squad_v2 ...", flush=True)
     load_dataset("rajpurkar/squad_v2", split="train")
+
     print("  tydiqa ...", flush=True)
     load_dataset("google-research-datasets/tydiqa", "secondary_task", split="train")
+
+    print("  race (middle) ...", flush=True)
+    load_dataset("ehovy/race", "middle", split="train")
+    print("  race (high) ...", flush=True)
+    load_dataset("ehovy/race", "high", split="train")
+
     print("  SQuAD_v2_fi ...", flush=True)
     try:
         load_dataset("ilmariky/SQuAD_v2_fi", split="train", trust_remote_code=True)

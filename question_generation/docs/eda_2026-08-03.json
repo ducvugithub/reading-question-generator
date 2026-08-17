@@ -1,0 +1,456 @@
+{
+  "en/train": {
+    "records": 71841,
+    "unique_passages": 17701,
+    "single_q_passages": 2805,
+    "q_per_passage": {
+      "count": 17701,
+      "min": 1,
+      "median": 5,
+      "mean": 4.1,
+      "p75": 5,
+      "p90": 5,
+      "max": 25
+    },
+    "passage_chars": {
+      "count": 71841,
+      "min": 45,
+      "median": 692,
+      "mean": 750.1,
+      "p75": 890,
+      "p90": 1146,
+      "max": 19871
+    },
+    "passage_words": {
+      "count": 71841,
+      "min": 8,
+      "median": 109,
+      "mean": 119.1,
+      "p75": 142,
+      "p90": 182,
+      "max": 3093
+    },
+    "passage_sentences": {
+      "count": 71841,
+      "min": 1,
+      "median": 5,
+      "mean": 5.1,
+      "p75": 6,
+      "p90": 8,
+      "max": 88
+    },
+    "question_chars": {
+      "count": 71841,
+      "min": 1,
+      "median": 55,
+      "mean": 58.8,
+      "p75": 70,
+      "p90": 86,
+      "max": 25651
+    },
+    "answer_chars": {
+      "count": 71841,
+      "min": 1,
+      "median": 14,
+      "mean": 20.3,
+      "p75": 23,
+      "p90": 43,
+      "max": 981
+    },
+    "kg_raw_triples": {
+      "count": 71841,
+      "min": 2,
+      "median": 12,
+      "mean": 13.3,
+      "p75": 17,
+      "p90": 22,
+      "max": 50
+    },
+    "kg_coref_triples": {
+      "count": 71841,
+      "min": 2,
+      "median": 12,
+      "mean": 13.3,
+      "p75": 17,
+      "p90": 22,
+      "max": 50
+    },
+    "cefr": {
+      "A1": 5898,
+      "A2": 65943
+    }
+  },
+  "en/eval": {
+    "records": 18329,
+    "unique_passages": 4463,
+    "single_q_passages": 638,
+    "q_per_passage": {
+      "count": 4463,
+      "min": 1,
+      "median": 5,
+      "mean": 4.1,
+      "p75": 5,
+      "p90": 5,
+      "max": 23
+    },
+    "passage_chars": {
+      "count": 18329,
+      "min": 77,
+      "median": 684,
+      "mean": 751.2,
+      "p75": 893,
+      "p90": 1141,
+      "max": 5350
+    },
+    "passage_words": {
+      "count": 18329,
+      "min": 14,
+      "median": 109,
+      "mean": 119.3,
+      "p75": 141,
+      "p90": 184,
+      "max": 818
+    },
+    "passage_sentences": {
+      "count": 18329,
+      "min": 1,
+      "median": 5,
+      "mean": 5.1,
+      "p75": 6,
+      "p90": 8,
+      "max": 40
+    },
+    "question_chars": {
+      "count": 18329,
+      "min": 11,
+      "median": 56,
+      "mean": 58.7,
+      "p75": 71,
+      "p90": 87,
+      "max": 199
+    },
+    "answer_chars": {
+      "count": 18329,
+      "min": 1,
+      "median": 14,
+      "mean": 20.5,
+      "p75": 23,
+      "p90": 43,
+      "max": 365
+    },
+    "kg_raw_triples": {
+      "count": 18329,
+      "min": 2,
+      "median": 12,
+      "mean": 13.4,
+      "p75": 17,
+      "p90": 23,
+      "max": 50
+    },
+    "kg_coref_triples": {
+      "count": 18329,
+      "min": 2,
+      "median": 12,
+      "mean": 13.4,
+      "p75": 17,
+      "p90": 23,
+      "max": 50
+    },
+    "cefr": {
+      "A1": 1559,
+      "A2": 16770
+    }
+  },
+  "fi/train": {
+    "records": 5316,
+    "unique_passages": 4466,
+    "single_q_passages": 3845,
+    "q_per_passage": {
+      "count": 4466,
+      "min": 1,
+      "median": 1.0,
+      "mean": 1.2,
+      "p75": 1,
+      "p90": 2,
+      "max": 6
+    },
+    "passage_chars": {
+      "count": 5316,
+      "min": 48,
+      "median": 428.0,
+      "mean": 489.9,
+      "p75": 598,
+      "p90": 830,
+      "max": 10212
+    },
+    "passage_words": {
+      "count": 5316,
+      "min": 6,
+      "median": 49.0,
+      "mean": 55.7,
+      "p75": 69,
+      "p90": 93,
+      "max": 1435
+    },
+    "passage_sentences": {
+      "count": 5316,
+      "min": 1,
+      "median": 4.0,
+      "mean": 4.7,
+      "p75": 6,
+      "p90": 8,
+      "max": 188
+    },
+    "question_chars": {
+      "count": 5316,
+      "min": 13,
+      "median": 34.0,
+      "mean": 37.1,
+      "p75": 44,
+      "p90": 55,
+      "max": 102
+    },
+    "answer_chars": {
+      "count": 5316,
+      "min": 2,
+      "median": 18.0,
+      "mean": 37.3,
+      "p75": 39,
+      "p90": 99,
+      "max": 1494
+    },
+    "kg_raw_triples": {
+      "count": 5316,
+      "min": 2,
+      "median": 9.0,
+      "mean": 10.5,
+      "p75": 14,
+      "p90": 18,
+      "max": 50
+    },
+    "kg_coref_triples": null,
+    "cefr": {
+      "A1": 31,
+      "A2": 5285
+    }
+  },
+  "fi/eval": {
+    "records": 1374,
+    "unique_passages": 1141,
+    "single_q_passages": 967,
+    "q_per_passage": {
+      "count": 1141,
+      "min": 1,
+      "median": 1,
+      "mean": 1.2,
+      "p75": 1,
+      "p90": 2,
+      "max": 6
+    },
+    "passage_chars": {
+      "count": 1374,
+      "min": 50,
+      "median": 407.5,
+      "mean": 487.9,
+      "p75": 596,
+      "p90": 817,
+      "max": 7323
+    },
+    "passage_words": {
+      "count": 1374,
+      "min": 6,
+      "median": 47.0,
+      "mean": 55.5,
+      "p75": 67,
+      "p90": 92,
+      "max": 740
+    },
+    "passage_sentences": {
+      "count": 1374,
+      "min": 1,
+      "median": 4.0,
+      "mean": 4.6,
+      "p75": 6,
+      "p90": 8,
+      "max": 38
+    },
+    "question_chars": {
+      "count": 1374,
+      "min": 15,
+      "median": 34.0,
+      "mean": 37.0,
+      "p75": 44,
+      "p90": 54,
+      "max": 108
+    },
+    "answer_chars": {
+      "count": 1374,
+      "min": 2,
+      "median": 18.0,
+      "mean": 36.4,
+      "p75": 38,
+      "p90": 98,
+      "max": 430
+    },
+    "kg_raw_triples": {
+      "count": 1374,
+      "min": 2,
+      "median": 9.0,
+      "mean": 10.6,
+      "p75": 13,
+      "p90": 19,
+      "max": 50
+    },
+    "kg_coref_triples": null,
+    "cefr": {
+      "A1": 10,
+      "A2": 1364
+    }
+  },
+  "ru/train": {
+    "records": 4065,
+    "unique_passages": 3609,
+    "single_q_passages": 3255,
+    "q_per_passage": {
+      "count": 3609,
+      "min": 1,
+      "median": 1,
+      "mean": 1.1,
+      "p75": 1,
+      "p90": 1,
+      "max": 11
+    },
+    "passage_chars": {
+      "count": 4065,
+      "min": 53,
+      "median": 534,
+      "mean": 670.3,
+      "p75": 785,
+      "p90": 1144,
+      "max": 20145
+    },
+    "passage_words": {
+      "count": 4065,
+      "min": 7,
+      "median": 73,
+      "mean": 91.4,
+      "p75": 107,
+      "p90": 157,
+      "max": 2950
+    },
+    "passage_sentences": {
+      "count": 4065,
+      "min": 1,
+      "median": 4,
+      "mean": 5.4,
+      "p75": 6,
+      "p90": 10,
+      "max": 202
+    },
+    "question_chars": {
+      "count": 4065,
+      "min": 14,
+      "median": 43,
+      "mean": 44.9,
+      "p75": 53,
+      "p90": 65,
+      "max": 184
+    },
+    "answer_chars": {
+      "count": 4065,
+      "min": 2,
+      "median": 12,
+      "mean": 25.7,
+      "p75": 23,
+      "p90": 60,
+      "max": 836
+    },
+    "kg_raw_triples": {
+      "count": 4065,
+      "min": 2,
+      "median": 6,
+      "mean": 8.7,
+      "p75": 11,
+      "p90": 18,
+      "max": 50
+    },
+    "kg_coref_triples": null,
+    "cefr": {
+      "A1": 95,
+      "A2": 3970
+    }
+  },
+  "ru/eval": {
+    "records": 1019,
+    "unique_passages": 933,
+    "single_q_passages": 861,
+    "q_per_passage": {
+      "count": 933,
+      "min": 1,
+      "median": 1,
+      "mean": 1.1,
+      "p75": 1,
+      "p90": 1,
+      "max": 4
+    },
+    "passage_chars": {
+      "count": 1019,
+      "min": 84,
+      "median": 531,
+      "mean": 663.7,
+      "p75": 804,
+      "p90": 1128,
+      "max": 7930
+    },
+    "passage_words": {
+      "count": 1019,
+      "min": 11,
+      "median": 73,
+      "mean": 91.0,
+      "p75": 111,
+      "p90": 161,
+      "max": 1053
+    },
+    "passage_sentences": {
+      "count": 1019,
+      "min": 1,
+      "median": 4,
+      "mean": 5.6,
+      "p75": 7,
+      "p90": 10,
+      "max": 84
+    },
+    "question_chars": {
+      "count": 1019,
+      "min": 14,
+      "median": 44,
+      "mean": 45.9,
+      "p75": 54,
+      "p90": 66,
+      "max": 220
+    },
+    "answer_chars": {
+      "count": 1019,
+      "min": 2,
+      "median": 12,
+      "mean": 25.4,
+      "p75": 23,
+      "p90": 62,
+      "max": 583
+    },
+    "kg_raw_triples": {
+      "count": 1019,
+      "min": 2,
+      "median": 6,
+      "mean": 8.7,
+      "p75": 11,
+      "p90": 18,
+      "max": 50
+    },
+    "kg_coref_triples": null,
+    "cefr": {
+      "A1": 30,
+      "A2": 989
+    }
+  }
+}
