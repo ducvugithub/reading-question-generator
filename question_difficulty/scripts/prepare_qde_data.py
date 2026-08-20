@@ -2,20 +2,27 @@
 """
 Prepare Question Difficulty Estimator (QDE) training data.
 
-Combines three curriculum-grounded difficulty sources:
-  EASY   — SQuAD 2.0  (span-locatable; BERT-base 88% F1)
-  MEDIUM — RACE-middle (Chinese middle-school English exams; BERT-base ~69%)
-  HARD   — RACE-high   (Chinese high-school English exams; BERT-base ~63%)
+All three classes come from the RACE family — same distribution, only exam level differs.
+This avoids cross-dataset alignment problems and ensures the model learns genuine
+difficulty signals rather than dataset-identity artifacts.
+
+  EASY   — RACE-middle  (Chinese middle-school English exams)
+  MEDIUM — RACE-high    (Chinese high-school English exams)
+  HARD   — RACE-C       (Chinese college entrance / Gaokao, tasksource/race-c)
+
+Sizes: middle ~25K, high ~62K, college ~12.7K.
+Use --balanced to cap all sources at ~12.7K (RACE-C is the bottleneck).
 
 Output records:
   {"passage": "...", "question": "...", "answer": "...",
-   "difficulty": "EASY|MEDIUM|HARD", "source": "squad|race_middle|race_high"}
+   "difficulty": "EASY|MEDIUM|HARD", "source": "race_middle|race_high|race_c"}
 
 Splits are deterministic at passage level via MD5 hashing (80/10/10).
 
 Usage:
   python question_difficulty/scripts/prepare_qde_data.py
-  python question_difficulty/scripts/prepare_qde_data.py --limit 500  # smoke test
+  python question_difficulty/scripts/prepare_qde_data.py --limit 500   # smoke test
+  python question_difficulty/scripts/prepare_qde_data.py --balanced    # ~12.7K per class
 """
 from __future__ import annotations
 
@@ -36,27 +43,8 @@ def _split_bucket(passage: str, train_r: float, val_r: float) -> str:
     return "test"
 
 
-def _iter_squad(limit: int | None) -> Iterator[dict]:
-    from datasets import load_dataset
-
-    ds = load_dataset("rajpurkar/squad_v2", split="train")
-    count = 0
-    for rec in ds:
-        if not rec["answers"]["text"]:  # skip unanswerable questions
-            continue
-        yield {
-            "passage":    rec["context"],
-            "question":   rec["question"],
-            "answer":     rec["answers"]["text"][0],
-            "difficulty": "EASY",
-            "source":     "squad",
-        }
-        count += 1
-        if limit and count >= limit:
-            break
-
-
 def _iter_race(subset: str, difficulty: str, limit: int | None) -> Iterator[dict]:
+    """ehovy/race — middle and high subsets. Answer field: letter A/B/C/D."""
     from datasets import load_dataset
 
     ds = load_dataset("ehovy/race", subset, split="train")
@@ -78,15 +66,38 @@ def _iter_race(subset: str, difficulty: str, limit: int | None) -> Iterator[dict
             break
 
 
+def _iter_race_c(limit: int | None) -> Iterator[dict]:
+    """tasksource/race-c — college level. Answer field: integer label 0-3."""
+    from datasets import load_dataset
+
+    ds = load_dataset("tasksource/race-c", split="train")
+    count = 0
+    for rec in ds:
+        idx = rec["label"]
+        if idx is None or idx >= len(rec["option"]):
+            continue
+        yield {
+            "passage":    rec["article"],
+            "question":   rec["question"],
+            "answer":     rec["option"][idx],
+            "difficulty": "HARD",
+            "source":     "race_c",
+        }
+        count += 1
+        if limit and count >= limit:
+            break
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", default="data/qde")
     parser.add_argument("--split", nargs=3, type=float, default=[0.8, 0.1, 0.1],
                         metavar=("TRAIN", "VAL", "TEST"))
     parser.add_argument("--limit", type=int, default=None,
-                        help="Max records per source (for smoke tests)")
+                        help="Max records per source (smoke tests)")
     parser.add_argument("--balanced", action="store_true",
-                        help="Cap each source at the size of the smallest (RACE-middle ~25K)")
+                        help="Cap each source at RACE-C size (~12.7K)")
     args = parser.parse_args()
 
     if abs(sum(args.split) - 1.0) > 0.01:
@@ -99,13 +110,13 @@ def main() -> None:
 
     splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
 
-    # --balanced caps all sources at RACE-middle size (~25K) for equal class representation
-    cap = args.limit or (25_421 if args.balanced else None)
+    # RACE-C train is ~12.7K — use as balance cap so classes are equal.
+    cap = args.limit or (12_702 if args.balanced else None)
 
     sources = [
-        ("SQuAD → EASY",        _iter_squad(cap)),
-        ("RACE-middle → MEDIUM", _iter_race("middle", "MEDIUM", cap)),
-        ("RACE-high → HARD",     _iter_race("high",   "HARD",   cap)),
+        ("RACE-middle → EASY",   _iter_race("middle", "EASY",   cap)),
+        ("RACE-high   → MEDIUM", _iter_race("high",   "MEDIUM", cap)),
+        ("RACE-C      → HARD",   _iter_race_c(cap)),
     ]
 
     for name, iterator in sources:

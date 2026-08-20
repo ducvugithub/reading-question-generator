@@ -1,157 +1,171 @@
-# Experiment Plan: Difficulty-Controlled KG-Enhanced Question Generation
+# Experiment Plan: Difficulty- and Focus-Span-Controlled Question Generation
 
 ## Research Questions
 
-1. Does KG information improve question generation quality over passage+answer alone?
-2. Does GNN-encoded KG (structured) outperform text-linearized KG (flat)?
-3. Can we reliably condition generation on cognitive difficulty?
-4. Does cross-attention GNN fusion into the decoder give the strongest difficulty control?
+1. Can a learned QDE reliably classify question difficulty across EASY / MEDIUM / HARD?
+2. Does curriculum-label conditioning (RACE++) produce questions that are measurably harder than SQuAD-style baseline?
+3. Does conditioning on a focus span (HotpotQA/MultiRC evidence sentences) shift questions toward inference rather than span-locating?
+4. Does combining both controls (M6) produce the best difficulty alignment and inference quality?
 
 ---
 
-## Experimental Conditions
+## Roadmap
 
-| ID | Name | Input | Novelty |
-|---|---|---|---|
-| M1 | Baseline | `passage + answer` | — |
-| M2 | Difficulty-controlled baseline | `passage + answer + <difficulty>` | — |
-| M3 | Linearized KG + difficulty | `passage + answer + kg_text + <difficulty>` | — |
-| M4 | GNN prefix + difficulty | `passage + answer + GNN_prefix_tokens + <difficulty>` | Partial |
-| M5 | GNN cross-attention + difficulty | `passage + answer` + GNN embeddings fused into decoder cross-attention | **Main novelty** |
+| Step | Model | Input | Training data | Status |
+|---|---|---|---|---|
+| 0 | Baseline QG | `passage` | RACE++ + HotpotQA + MultiRC (no conditioning) | pending |
+| 1 | QDE | `passage + question + answer` | RACE-middle→EASY, RACE-high→MEDIUM, RACE-college→HARD | code done |
+| 2 | Difficulty QG | `passage + <difficulty>` | RACE++ (curriculum labels) | data ready |
+| 3 | Focus-span QG | `passage + focus_span` | HotpotQA (comparison/yes-no) + MultiRC | pending |
+| 4 | M6 (full) | `passage + focus_span + <difficulty>` | Steps 2+3 enriched via QDE | depends on 1+3 |
 
-### Input formats
-
-**M1 — Baseline**
-```
-answer: Houston context: Beyoncé was born in Houston, Texas...
-```
-
-**M2 — Difficulty token only**
-```
-difficulty: hard answer: Houston context: Beyoncé was born in Houston, Texas...
-```
-
-**M3 — Linearized KG**
-```
-difficulty: hard answer: Houston
-knowledge: Beyoncé | born_in | Houston ; Beyoncé | be | singer ; she | perform_in | competition
-context: Beyoncé was born in Houston, Texas...
-```
-
-**M4 — GNN prefix injection**
-- KG encoded with GAT → node embeddings projected to T5 token dimension
-- Prepended as soft prefix tokens to encoder input
-- Rest of input same as M2
-
-**M5 — GNN cross-attention fusion (main novelty)**
-- KG encoded with GAT → node + edge embeddings
-- Injected into decoder cross-attention via an additional KG cross-attention layer
-- Decoder attends to both encoder (passage) and GNN (KG) simultaneously
-- Difficulty token still prepended to encoder input
+**Note on answer:** Answer span is NOT an input to the generator (unlike standard SQuAD QG). RACE questions have multiple-choice answers; RACE++ training keeps the answer text available as context but the generator produces the question, not the answer.
 
 ---
 
-## Model Candidates
+## Step 0 — Baseline QG (M1)
 
-### Seq2seq backbone
+Fine-tune T5-base on RACE++ + HotpotQA + MultiRC: `passage → question` (no difficulty token, no focus span).
 
-| Model | Params | Languages | Notes |
+Serves as the uncontrolled ablation baseline. Using the same source datasets as Steps 2–4 means comparisons isolate the effect of difficulty/focus-span conditioning rather than dataset distribution shift (which would happen if baseline were SQuAD-trained).
+
+---
+
+## Step 1 — Question Difficulty Estimator (QDE)
+
+Three methods trained in parallel. Best one used to enrich data for Step 4.
+
+### Training data
+
+All three classes come from the RACE family — same distribution, only exam level differs. Avoids cross-dataset alignment problems; all answers are multiple-choice (non-span), so no `a_in_passage` artifact.
+
+| Label | Source | HF path | Train size |
 |---|---|---|---|
-| `t5-base` | 220M | EN only | Strong EN baseline, well-studied for QG |
-| `google/mt5-small` | 300M | 101 langs (EN, FI, RU) | Multilingual, efficient |
-| `google/mt5-base` | 580M | 101 langs | Better quality, higher cost |
-| `TurkuNLP/t5-v1_1-large-finnish` | 800M | FI only | Best for Finnish (later phase) |
+| EASY | RACE-middle (Chinese middle-school English exams) | `ehovy/race` middle | ~25K |
+| MEDIUM | RACE-high (Chinese high-school English exams) | `ehovy/race` high | ~62K |
+| HARD | RACE-C (Chinese college entrance / Gaokao) | `tasksource/race-c` | ~12.7K |
 
-**Primary choice: `t5-base` for EN experiments (M1–M5). Switch to `mt5-small` for multilingual phase.**
+Use `--balanced` flag to cap at ~12.7K per class (RACE-C is the bottleneck).
 
-### GNN encoder (M4, M5)
+### Methods
 
-| Architecture | Handles relation types | Notes |
+| Method | Architecture | Key detail |
 |---|---|---|
-| GAT (Graph Attention Network) | No (needs edge features) | Simple, interpretable attention weights |
-| RGCN (Relational GCN) | Yes | Natural fit — KG triples have typed relations |
-| GraphSAGE | No | Scalable but less suited to typed KGs |
+| Feature-based | GradientBoostingClassifier | 14 linguistic features (q_wh_type, q_avg_zipf, a_in_passage, p_n_sents, …) |
+| Encoder | RoBERTa / DeBERTa-v3 fine-tune | Input: `[CLS] question [answer: A] [SEP] passage [SEP]`, [CLS] → linear classifier |
+| Contrastive | Triplet loss + projection head | Online triplet mining, L2-normalized embeddings, LR probe phase 2 |
 
-**Primary choice: RGCN** — KG triples have explicit relation types (`born_in`, `perform_in`, etc.) which RGCN handles natively. GAT as fallback.
+Feature-based model: `a_in_passage` is now less dominant since all three classes come from RACE (all non-span answers). The model must learn genuine difficulty signals. Macro F1 is the primary metric.
 
----
+Scripts: `question_difficulty/scripts/train_{feature_based,encoder,contrastive}.py`
+Slurm jobs: `question_difficulty/slurms/train_qde_{feature_based,encoder,contrastive}.job`
 
-## Difficulty Signal
+### Evaluation
 
-Source: `GraphCognitiveDifficultyEstimator` (rule-based, see `docs/cognitive_difficulty_estimation.md`)
-
-```
-score = 0.45 × s_qtype + 0.30 × s_coref + 0.15 × s_coverage + 0.10 × s_density
-label = easy (< 0.33) | medium (0.33–0.67) | hard (> 0.67)
-```
-
-Control token: `<easy>`, `<medium>`, `<hard>` prepended to encoder input for M2–M5.
-
-**Status: post-processing script needed** to add `cognitive_difficulty` field to all JSONL records before training.
+- Macro F1 on balanced test set (primary)
+- Confusion matrix (detect systematic misclassification)
+- Feature importance (feature-based only)
 
 ---
 
-## Dataset
+## Step 2 — Difficulty-Controlled QG (M5)
 
-| Split | EN | FI | RU |
+Fine-tune T5-base on RACE++ with curriculum difficulty token prepended.
+
+```
+difficulty: hard context: Young people nowadays...
+→ "What is the author's attitude toward social media?"
+```
+
+Difficulty labels: `middle → MEDIUM`, `high → HARD`, `college (Gaokao) → HARD`.
+SQuAD records (from M1 data) are added with forced `EASY` label.
+
+Input format is identical to M2 (haiku\_cog-based), so M2 and M5 are comparable ablations.
+
+### Evaluation
+
+- QA-eval: run RoBERTa-SQuAD2 on generated questions, measure EM + F1
+- **Difficulty alignment**: run QDE (Step 1) on generated questions, compute `alignment@level = % requests honored`
+- BLEU-4, BERTScore-F1 vs reference questions
+
+---
+
+## Step 3 — Focus-Span QG
+
+Fine-tune T5-base on evidence-annotated datasets.
+
+```
+focus: [Scott Derrickson is an American director] [Ed Wood was an American filmmaker]
+context: [full 10-passage context]
+→ "Were Scott Derrickson and Ed Wood of the same nationality?"
+```
+
+### Training data
+
+| Dataset | Evidence granularity | Q types | Size |
 |---|---|---|---|
-| train | 71,969 | 5,295 | 4,082 |
-| eval | 18,201 | 1,395 | 1,002 |
+| HotpotQA (`type == "comparison"`) | Sentence-level supporting\_facts | Yes/No, multi-hop inference | ~18K (comparison subset) |
+| MultiRC | Sentence-level evidence | Binary T/F, inference | ~9.7K |
 
-Phase 1: EN only (`t5-base`). Phase 2: multilingual (`mt5-small`, EN+FI+RU).
+Filter HotpotQA to `type == "comparison"` to exclude bridge questions where the answer IS a span.
 
-**Note:** FI and RU have `kg_coref = null` (Stanza coref is EN-only). M5 uses `kg_raw` for all languages.
+### Evaluation
 
----
-
-## Training Plan
-
-### Phase 1 — EN ablation (M1–M5)
-
-- Base model: `t5-base`
-- Batch size: 16 (gradient accumulation × 4 = effective 64)
-- Learning rate: 5e-4 with linear warmup
-- Max input length: 512 tokens
-- Max output length: 64 tokens
-- Epochs: 5
-- Hardware: 1× A100 (Mahti gpusmall)
-
-### Phase 2 — Multilingual (best model from Phase 1)
-
-- Base model: `mt5-small`
-- Same hyperparameters
-- Languages: EN + FI (+ RU if time permits)
+- QA-eval (answerability)
+- Human eval: does the question require reasoning from the focus span, not just locating an answer?
+- Proxy: what fraction of generated questions are yes/no or require multi-hop (vs. span-locating wh-)?
 
 ---
 
-## Evaluation
+## Step 4 — M6: Focus Span + Difficulty
 
-### Automatic metrics (per difficulty bucket: easy / medium / hard)
+Combine Steps 2 and 3 via QDE-based data enrichment.
 
-| Metric | What it measures |
+### Bootstrapping pipeline
+
+```
+HotpotQA / MultiRC
+  → run QDE (Step 1) on each (passage, question, answer)
+  → assign EASY / MEDIUM / HARD label
+  → now have (passage, focus_span, difficulty, question) tuples
+
+Combined training data:
+  RACE++ records (difficulty from curriculum, no focus span → span = "")
+  + enriched HotpotQA/MultiRC (focus span + QDE difficulty)
+
+Input: passage + focus_span + <difficulty> → question
+```
+
+Caveat: QDE is trained on SQuAD/RACE distribution; applying it to HotpotQA/MultiRC is extrapolation — difficulty signal will be noisier. Report this in the paper.
+
+### Evaluation
+
+- Difficulty alignment (QDE on outputs)
+- Focus span relevance (human eval or proxy)
+- QA-eval (answerability)
+
+---
+
+## Model Configuration
+
+| Parameter | Value |
 |---|---|
-| BLEU-4 | N-gram overlap with reference |
-| ROUGE-L | Longest common subsequence |
-| BERTScore | Semantic similarity (multilingual BERT) |
-| Difficulty accuracy | Does generated question match target difficulty label? |
-
-### Difficulty accuracy (key metric for M2–M5)
-- Run `GraphCognitiveDifficultyEstimator` on generated questions
-- Compare predicted label vs. control token used during generation
-- Measures how well the model honours the difficulty conditioning
-
-### Closest prior work to beat
-- Kumar et al. (2019) ISWC — KG hop count difficulty, LSTM-based
-- Our M3 (linearized) should already beat this; M5 is the target
+| Backbone | `google-t5/t5-base` (220M params) |
+| Batch size | 16 (gradient accumulation ×4 = effective 64) |
+| Learning rate | 5e-4, linear warmup |
+| Max input | 512 tokens |
+| Max output | 64 tokens |
+| Epochs | 5 |
+| Hardware | 1× A100 (Mahti `gpusmall`) |
 
 ---
 
-## Implementation Order
+## Prior Work to Beat
 
-1. `scripts/add_cognitive_difficulty.py` — post-process dataset, add `cognitive_difficulty` field
-2. `scripts/train_seq2seq.py` — M1, M2, M3 (no GNN, pure seq2seq)
-3. `models/gnn_encoder.py` — RGCN encoder shared by M4 and M5
-4. `models/t5_gnn_prefix.py` — M4: prefix injection
-5. `models/t5_gnn_decoder.py` — M5: cross-attention fusion
-6. `scripts/evaluate_qg.py` — BLEU/ROUGE/BERTScore + difficulty accuracy
-7. `slurms/training/` — SLURM jobs for each condition
+| Paper | Method | Metric |
+|---|---|---|
+| Du et al. 2017 — Learning to Ask | LSTM on SQuAD | BLEU-4 ~13 |
+| Gao et al. 2019 — Difficulty-Controlled QG | Heuristic signals, no standard framework | Difficulty alignment ~60% |
+| Pan et al. 2020 — Semantic Graphs for Deep Questions | AMR graph + GNN | BERTScore F1 ~0.62 |
+
+Step 2 (M5) should beat Gao et al. 2019 on difficulty alignment. M6 is novel — no prior work combines learned difficulty + focus-span control without an answer span.

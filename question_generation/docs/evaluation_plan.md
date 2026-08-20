@@ -1,128 +1,116 @@
-# Evaluation Plan — Difficulty-Controlled Question Generation
+# Evaluation Plan — Difficulty- and Focus-Span-Controlled QG
 
-## Goal
+## Metrics by Step
 
-Validate that conditioning a QG model on difficulty signals (LLM-judged cognitive difficulty + KG structure) produces questions that:
-1. Are answerable and relevant to the passage
-2. Actually match the requested difficulty level
+### Step 1: QDE Evaluation
 
----
-
-## Dataset Split
-
-- **Source**: EN eval set, ~20k annotated QA pairs (passage-level split)
-- **Train**: 80% (~16k QA pairs)
-- **Test**: 20% (~4k QA pairs)
-- Difficulty labels derived from `question_cognitive_diff`: easy <0.33, medium 0.33–0.67, hard >0.67
+| Metric | Details |
+|---|---|
+| Macro F1 | Equal weight to EASY / MEDIUM / HARD (primary) |
+| Confusion matrix | Detect systematic bias (e.g., MEDIUM always predicted as EASY) |
+| Feature importance | Feature-based model only — sanity check that `a_in_passage` isn't the only signal |
 
 ---
 
-## Models
+### Steps 0, 2, 3, 4: QG Evaluation
 
-| ID | Input | Difficulty | KG |
-|----|-------|:----------:|:--:|
-| M1 | passage + answer | — | — |
-| M2 | passage + answer | ✓ | — |
-| M3 | passage + answer | — | ✓ |
-| M4 | passage + answer | ✓ | ✓ |
+All QG models share the same three metric categories.
 
-All models start from raw `t5-base` fine-tuned on the same training split.
+#### 1. QA-eval — Answerability
 
----
+Generate a question → run a QA model → compare predicted answer to original.
 
-## Evaluation Metrics
+| Model | Role |
+|---|---|
+| `deepset/roberta-base-squad2` | Standard |
+| `deepset/deberta-v3-base-squad2` | Stronger |
 
-### 1. QA-eval — Primary Quality Metric
+Scores: **Exact Match (EM)** and **F1** (token overlap).
 
-Generate a question → run a QA model to answer it from the passage → compare predicted answer to original answer.
-
-**Models:**
-- `deepset/roberta-base-squad2` (standard)
-- `deepset/deberta-v3-base-squad2` (stronger)
-
-**Scores:**
-- **Exact Match (EM)**: predicted span == original answer
-- **F1**: token overlap between predicted and original answer
-
-A question is good if it is answerable and elicits the correct answer span.
+A question is good if a QA model can answer it correctly from the passage — i.e., it is answerable and grounded.
 
 ---
 
-### 2. Difficulty Alignment — Main Contribution Metric
+#### 2. Difficulty Alignment — Main Contribution Metric (Steps 2, 4)
 
-For M2 and M4 (difficulty-conditioned models), generate questions at each requested level (EASY, MEDIUM, HARD). Run the LLM judge (Haiku) on generated questions and measure how often the actual difficulty matches the request.
+Run the best QDE (Step 1) on generated questions. Measure how often the predicted difficulty matches the requested difficulty token.
 
-**Metric:**
 ```
-alignment@level = % of generated questions whose scored level matches requested level
+alignment@level = % of generated questions where QDE(q) == requested_level
 ```
 
-**Expected result:** M1 (no control) shows random alignment ~33%. M2/M4 show significantly higher alignment.
+Expected: Step 0 (no control) → ~33% (random). Steps 2, 4 → significantly higher.
 
----
-
-### 3. Student Simulator — Model-Based Difficulty Validation
-
-Use a cascade of QA models of increasing capability to simulate students of different proficiency levels:
+Also report via student simulator as a model-free check:
 
 | Simulator | Model | Represents |
-|-----------|-------|------------|
-| Weak | `distilbert-base-cased-distilled-squad` | Struggling student |
-| Medium | `deepset/roberta-base-squad2` | Average student |
-| Strong | `deepset/deberta-v3-base-squad2` | Advanced student |
+|---|---|---|
+| Weak | `distilbert-base-cased-distilled-squad` | Struggling reader |
+| Medium | `deepset/roberta-base-squad2` | Average reader |
+| Strong | `deepset/deberta-v3-base-squad2` | Advanced reader |
 
-**Difficulty score** = proportion of simulators that answer correctly:
-- 3/3 correct → easy
-- 2/3 correct → medium  
-- 0–1/3 correct → hard
-
-**Uses:**
-1. **Validate LLM judge**: does Haiku's `question_cognitive_diff` correlate with simulator-based difficulty?
-2. **Evaluate generated questions**: do questions requested at HARD actually fail weak simulators?
+Difficulty score = proportion of simulators that answer correctly (3/3 → EASY, 2/3 → MEDIUM, ≤1/3 → HARD).
 
 ---
 
-### 4. Secondary Metrics
+#### 3. Focus Span Relevance (Step 3, 4)
+
+No automated metric fully captures whether a question requires reasoning from a focus span vs. locating an answer.
+
+| Proxy | Method |
+|---|---|
+| Question type distribution | Fraction of yes/no and multi-hop wh- vs. span-locating questions |
+| QA-eval delta | Does removing the focus span from context reduce QA-eval F1? |
+| Human eval | Annotators judge: "Can this question be answered by locating a span, or does it require inference?" |
+
+Human eval is the gold standard for Step 3/4.
+
+---
+
+#### 4. Standard NLG Metrics (for prior work comparability)
 
 | Metric | Tool | Purpose |
-|--------|------|---------|
-| BERTScore (F1) | `bert-score` | Semantic similarity to reference, handles paraphrases |
-| BLEU-4 | `sacrebleu` | N-gram overlap, reported for prior work comparability |
+|---|---|---|
+| BERTScore F1 | `bert-score` | Semantic similarity to reference question |
+| BLEU-4 | `sacrebleu` | N-gram overlap; reported for comparison with prior work |
+
+Note: BERTScore and BLEU measure similarity to reference questions, not question quality directly. A harder question that is phrased differently from the SQuAD reference may score low even if it is better. Use as secondary metrics only.
 
 ---
 
 ## Evaluation Procedure
 
 ```
-For each model M1–M4:
+For each model (Step 0, 2, 3, 4):
   1. Generate questions on test set
-     - M1/M3: generate once (no difficulty conditioning)
-     - M2/M4: generate 3× — once per difficulty level (EASY, MEDIUM, HARD)
-  
+     - Step 0: one pass (no conditioning)
+     - Steps 2, 4: three passes — EASY, MEDIUM, HARD
+     - Steps 3, 4: one pass per focus span
+
   2. QA-eval
-     - Run roberta-base-squad2 + deberta-v3-base-squad2 on generated questions
-     - Compute EM and F1 per model
-  
-  3. Difficulty alignment (M2, M4 only)
-     - Run Haiku annotator on generated questions
+     - roberta-base-squad2 + deberta-v3-base-squad2
+     - Compute EM and F1
+
+  3. Difficulty alignment (Steps 2, 4)
+     - Run QDE on generated questions
      - Compute alignment@easy, alignment@medium, alignment@hard
-  
-  4. Student simulator
-     - Run 3 QA simulators on generated questions
-     - Compute simulator-based difficulty score
-     - Correlate with Haiku scores (Spearman ρ)
-  
+     - Run student simulator; correlate with QDE (Spearman ρ)
+
+  4. Focus span relevance (Steps 3, 4)
+     - Count question type distribution (yes/no, wh-, etc.)
+     - Optional: human eval on 100-question sample
+
   5. BERTScore + BLEU-4
-     - Compare against reference questions in test set
+     - Compare against reference questions in test split
 ```
 
 ---
 
-## Key Research Questions
+## Key Comparisons
 
-| Question | Metric |
-|----------|--------|
-| Does difficulty conditioning improve alignment? | alignment@level: M1 vs M2/M4 |
-| Does KG conditioning improve question quality? | QA-eval F1: M1/M2 vs M3/M4 |
-| Do LLM difficulty scores reflect actual answerability difficulty? | Spearman ρ between Haiku scores and simulator scores |
-| Does combining both signals (M4) outperform each alone? | All metrics: M2 vs M3 vs M4 |
+| Question | Comparison |
+|---|---|
+| Does difficulty conditioning work? | Step 0 vs Step 2: alignment@level |
+| Does focus span shift question type? | Step 0 vs Step 3: question type distribution, human eval |
+| Does combining both help? | Steps 2 + 3 individually vs Step 4 (M6) |
+| Does QDE-enrichment hurt data quality? | Step 4 difficulty alignment vs Step 2 (clean labels vs noisy QDE labels) |

@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-Fine-tune T5 for difficulty-controlled question generation (M1–M4).
+Fine-tune T5 for question generation.
 
-Reads data/t5/{model_type}/{lang}/{split}.jsonl produced by prepare_t5_inputs.py
+Reads data/qg/{step}/{split}.jsonl produced by prepare_qg_data.py
 and fine-tunes t5-base using HuggingFace Seq2SeqTrainer.
 
+Steps:
+  step0  — baseline QG: context → question (no conditioning)
+  step2  — difficulty-controlled QG: difficulty + context → question
+  step3  — focus-span QG: focus + context → question
+  step4  — M6 full: difficulty + focus + context → question (QDE-enriched data)
+
 Usage:
-  # Single model type
-  python scripts/train_seq2seq.py --model-type m1 --langs en
-
-  # All model types sequentially
-  for m in m1 m2 m3 m4; do
-    python scripts/train_seq2seq.py --model-type $m --langs en
-  done
-
-  # On Mahti with GPU
-  python scripts/train_seq2seq.py --model-type m4 --langs en --batch-size 16 --epochs 5
+  python question_generation/scripts/train_seq2seq.py --model-type step0
+  python question_generation/scripts/train_seq2seq.py --model-type step2 --epochs 5
+  python question_generation/scripts/train_seq2seq.py --model-type step0 --limit 200 --epochs 1  # smoke test
 """
 from __future__ import annotations
 
@@ -54,8 +53,10 @@ def build_hf_dataset(train_records: list[dict], eval_records: list[dict], tokeni
         inputs["labels"] = labels
         return inputs
 
-    train_ds = Dataset.from_list(train_records).map(tokenize, batched=True, remove_columns=["input_text", "target_text", "difficulty", "lang", "generated"])
-    eval_ds  = Dataset.from_list(eval_records).map(tokenize, batched=True, remove_columns=["input_text", "target_text", "difficulty", "lang", "generated"])
+    cols_to_remove = [c for c in ["input_text", "target_text", "difficulty", "source", "step"]
+                      if c in train_records[0]]
+    train_ds = Dataset.from_list(train_records).map(tokenize, batched=True, remove_columns=cols_to_remove)
+    eval_ds  = Dataset.from_list(eval_records).map(tokenize, batched=True, remove_columns=cols_to_remove)
     return train_ds, eval_ds
 
 
@@ -83,9 +84,9 @@ def compute_metrics_fn(tokenizer):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-type",  required=True, choices=["m1", "m2", "m3", "m4"])
-    parser.add_argument("--langs",       nargs="+", default=["en"])
-    parser.add_argument("--data-dir",    default="data/t5")
+    parser.add_argument("--model-type",  required=True,
+                        choices=["step0", "step2", "step3", "step4"])
+    parser.add_argument("--data-dir",    default="data/qg")
     parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")
     parser.add_argument("--epochs",      type=int,   default=3)
@@ -99,7 +100,7 @@ def main() -> None:
     parser.add_argument("--early-stopping",   type=int, default=3,    help="Stop after N evals with no improvement (0 to disable)")
     args = parser.parse_args()
 
-    print(f"Model type: {args.model_type.upper()} | langs: {args.langs} | limit: {args.limit}", flush=True)
+    print(f"Model type: {args.model_type.upper()} | limit: {args.limit}", flush=True)
     print("Importing transformers...", flush=True)
     from transformers import T5ForConditionalGeneration, T5Tokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
 
@@ -117,6 +118,7 @@ def main() -> None:
 
     train_path = data_dir / "train.jsonl"
     eval_path  = data_dir / "val.jsonl"
+    print(f"Data: {data_dir}", flush=True)
     if train_path.exists():
         records = load_jsonl(train_path)
         train_records = records[:args.limit] if args.limit else records

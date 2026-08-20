@@ -5,6 +5,8 @@ Train a feature-based Question Difficulty Estimator (gradient-boosted trees).
 Reads data/qde/{train,val,test}.jsonl produced by prepare_qde_data.py,
 extracts linguistic features, and trains a GradientBoostingClassifier.
 
+Labels: EASY (RACE-middle), MEDIUM (RACE-high), HARD (RACE-C).
+
 Usage:
   python question_difficulty/scripts/train_feature_based.py
   python question_difficulty/scripts/train_feature_based.py --data-dir data/qde --limit 5000

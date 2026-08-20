@@ -36,18 +36,28 @@ _LABEL_NAMES = ["EASY", "MEDIUM", "HARD"]
 class TripletQDEDataset(Dataset):
     """
     Returns (anchor, positive, negative) triplets sampled online.
-    Positive = same difficulty class; negative = different difficulty class.
+
+    mode='same_class'  — positive=same label, negative=any different label (standard)
+    mode='ordinal'     — positive=adjacent level, negative=furthest level
+                         enforces d(EASY,MEDIUM) < d(EASY,HARD); MEDIUM anchors fall
+                         back to same-class (no clear "closer" neighbour)
+    mode='mixed'       — 50/50 coin flip between same_class and ordinal each step
     """
 
-    def __init__(self, records: list[dict], tokenizer, max_len: int):
+    def __init__(self, records: list[dict], tokenizer, max_len: int, mode: str = "same_class"):
         self.records = records
         self.tokenizer = tokenizer
         self.max_len = max_len
+        self.mode = mode
         # Index records by label for fast positive/negative sampling
         self.by_label: dict[int, list[int]] = {0: [], 1: [], 2: []}
         for i, rec in enumerate(records):
             label = _LABEL_MAP[rec["difficulty"].lower()]
             self.by_label[label].append(i)
+
+    # Ordinal neighbours: label → (adjacent_label, far_label)
+    # MEDIUM (1) has no clear "closer" end — falls back to same-class
+    _ORDINAL = {0: (1, 2), 2: (1, 0)}  # EASY→(MEDIUM,HARD), HARD→(MEDIUM,EASY)
 
     def _encode(self, rec: dict) -> dict:
         question_text = f"{rec['question']} [answer: {rec['answer']}]"
@@ -72,15 +82,24 @@ class TripletQDEDataset(Dataset):
         anchor_rec = self.records[idx]
         anchor_label = _LABEL_MAP[anchor_rec["difficulty"].lower()]
 
-        # Sample positive (same class, different index)
-        pos_candidates = [i for i in self.by_label[anchor_label] if i != idx]
-        pos_idx = random.choice(pos_candidates) if pos_candidates else idx
-        pos_rec = self.records[pos_idx]
+        use_ordinal = (
+            self.mode == "ordinal"
+            or (self.mode == "mixed" and random.random() < 0.5)
+        )
 
-        # Sample negative (different class)
-        neg_labels = [l for l in self.by_label if l != anchor_label and self.by_label[l]]
-        neg_label = random.choice(neg_labels)
-        neg_idx = random.choice(self.by_label[neg_label])
+        if use_ordinal and anchor_label in self._ORDINAL:
+            # Ordinal triplet: positive=adjacent level, negative=far level
+            adj_label, far_label = self._ORDINAL[anchor_label]
+            pos_idx = random.choice(self.by_label[adj_label])
+            neg_idx = random.choice(self.by_label[far_label])
+        else:
+            # Same-class triplet: positive=same label, negative=any other label
+            pos_candidates = [i for i in self.by_label[anchor_label] if i != idx]
+            pos_idx = random.choice(pos_candidates) if pos_candidates else idx
+            neg_labels = [l for l in self.by_label if l != anchor_label and self.by_label[l]]
+            neg_idx = random.choice(self.by_label[random.choice(neg_labels)])
+
+        pos_rec = self.records[pos_idx]
         neg_rec = self.records[neg_idx]
 
         return {
@@ -159,9 +178,12 @@ def extract_embeddings(model, records, tokenizer, max_len, batch_size, device):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-name",  default="roberta-base")
-    parser.add_argument("--data-dir",    default="data/qde")
-    parser.add_argument("--output-dir",  default="question_difficulty/models/contrastive")
+    parser.add_argument("--model-name",   default="roberta-base")
+    parser.add_argument("--data-dir",     default="data/qde")
+    parser.add_argument("--output-dir",   default="question_difficulty/models/contrastive")
+    parser.add_argument("--triplet-mode", default="mixed",
+                        choices=["same_class", "ordinal", "mixed"],
+                        help="same_class: cluster by label; ordinal: enforce EASY<MEDIUM<HARD geometry; mixed: 50/50")
     parser.add_argument("--embed-dim",   type=int,   default=256)
     parser.add_argument("--margin",      type=float, default=0.5,
                         help="Triplet margin (cosine distance)")
@@ -188,8 +210,9 @@ def main() -> None:
     test_records  = load_records(data_dir / "test.jsonl",  args.limit)
     print(f"train={len(train_records)}  val={len(val_records)}  test={len(test_records)}", flush=True)
 
+    print(f"Triplet mode: {args.triplet_mode}", flush=True)
     train_loader = DataLoader(
-        TripletQDEDataset(train_records, tokenizer, args.max_len),
+        TripletQDEDataset(train_records, tokenizer, args.max_len, mode=args.triplet_mode),
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collate_triplets,
@@ -202,7 +225,7 @@ def main() -> None:
         margin=args.margin,
     )
 
-    out_dir = Path(args.output_dir) / args.model_name.replace("/", "_")
+    out_dir = Path(args.output_dir) / args.model_name.replace("/", "_") / args.triplet_mode
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Phase 1: contrastive training

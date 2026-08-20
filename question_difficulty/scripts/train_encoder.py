@@ -71,8 +71,8 @@ def load_records(path: Path, limit: int | None) -> list[dict]:
 
 
 def evaluate(model, loader, device) -> tuple[float, list[int], list[int]]:
+    from sklearn.metrics import f1_score
     model.eval()
-    correct, total = 0, 0
     all_preds, all_labels = [], []
     with torch.no_grad():
         for batch in loader:
@@ -82,11 +82,10 @@ def evaluate(model, loader, device) -> tuple[float, list[int], list[int]]:
             labels = batch["label"].to(device)
             logits = model(ids, mask, ttype if ttype.any() else None)
             preds = logits.argmax(dim=-1)
-            correct += (preds == labels).sum().item()
-            total += len(labels)
             all_preds.extend(preds.cpu().tolist())
             all_labels.extend(labels.cpu().tolist())
-    return correct / total, all_preds, all_labels
+    macro_f1 = f1_score(all_labels, all_preds, average="macro")
+    return macro_f1, all_preds, all_labels
 
 
 def main() -> None:
@@ -128,7 +127,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     criterion = torch.nn.CrossEntropyLoss()
 
-    best_val_acc, best_epoch = 0.0, 0
+    best_val_f1, best_epoch = 0.0, 0
     out_dir = Path(args.output_dir) / args.model_name.replace("/", "_")
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -150,15 +149,15 @@ def main() -> None:
             n_batches += 1
 
         train_loss = total_loss / n_batches
-        val_acc, _, _ = evaluate(model, val_loader, device)
-        print(f"Epoch {epoch}/{args.epochs}  train_loss={train_loss:.4f}  val_acc={val_acc:.4f}", flush=True)
+        val_f1, _, _ = evaluate(model, val_loader, device)
+        print(f"Epoch {epoch}/{args.epochs}  train_loss={train_loss:.4f}  val_macro_f1={val_f1:.4f}", flush=True)
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             best_epoch = epoch
             torch.save(model.state_dict(), out_dir / "best_model.pt")
 
-    print(f"\nBest val_acc={best_val_acc:.4f} at epoch {best_epoch}", flush=True)
+    print(f"\nBest val_macro_f1={best_val_f1:.4f} at epoch {best_epoch}", flush=True)
 
     # Evaluate best model on test set
     model.load_state_dict(torch.load(out_dir / "best_model.pt", map_location=device))

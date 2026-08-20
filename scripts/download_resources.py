@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
-"""Download HuggingFace datasets and Stanza models to cache.
+"""Download HuggingFace datasets to cache.
 Run once on the login node before submitting sbatch jobs.
 """
-import sys
+
 
 def main():
     print("=== Downloading HuggingFace datasets ===", flush=True)
     from datasets import load_dataset
 
-    print("  squad_v2 ...", flush=True)
-    load_dataset("rajpurkar/squad_v2", split="train")
-
-    print("  tydiqa ...", flush=True)
-    load_dataset("google-research-datasets/tydiqa", "secondary_task", split="train")
-
-    print("  race (middle) ...", flush=True)
+    # QDE training data (Step 1) + QG baseline/difficulty (Steps 0, 2)
+    print("  race-middle ...", flush=True)
     load_dataset("ehovy/race", "middle", split="train")
-    print("  race (high) ...", flush=True)
+    print("  race-high ...", flush=True)
     load_dataset("ehovy/race", "high", split="train")
+    print("  race-c (college/Gaokao) ...", flush=True)
+    load_dataset("tasksource/race-c", split="train")
 
-    print("  SQuAD_v2_fi ...", flush=True)
-    try:
-        load_dataset("ilmariky/SQuAD_v2_fi", split="train", trust_remote_code=True)
-    except Exception as e:
-        print(f"  WARNING: SQuAD_v2_fi failed ({e.__class__.__name__}), skipping.", flush=True)
+    # QG focus-span training data (Steps 3, 4)
+    print("  hotpotqa (distractor) ...", flush=True)
+    load_dataset("hotpotqa/hotpot_qa", "distractor", split="train")
+    load_dataset("hotpotqa/hotpot_qa", "distractor", split="validation")
 
-    print("=== Downloading Stanza models ===", flush=True)
-    import stanza
-    stanza.download("en")
-    stanza.download("fi")
+    # QG focus-span (Step 3)
+    print("  multirc (super_glue) ...", flush=True)
+    load_dataset("aps/super_glue", "multirc", split="train")
+    load_dataset("aps/super_glue", "multirc", split="validation")
 
     print("=== Done ===", flush=True)
+
 
 if __name__ == "__main__":
     main()

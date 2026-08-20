@@ -1,405 +1,102 @@
-# Knowledge Graph Question Generation with Difficulty Variants
+# Reading Question Generator
 
-Generate CEFR-levelled questions from English or Finnish text passages. The pipeline extracts a knowledge graph, generates questions, estimates difficulty, and creates **difficulty variants** by replacing verbs with semantically similar synonyms at different CEFR levels using Word2Vec.
+Research project: difficulty-controlled and focus-span-conditioned question generation for English reading comprehension, with an IRT-validated Question Difficulty Estimator (QDE).
 
-## Quick Start
+## Research Roadmap
 
-```bash
-# Generate questions with difficulty variants
-make questions INPUT=data/en/microsoft.txt TARGET_CEFR=C1
-
-# Specify output file
-make questions INPUT=data/en/microsoft.txt OUTPUT=my_report.md TARGET_CEFR=B1
-
-# Print to terminal (verbose)
-make questions INPUT=data/en/microsoft.txt VERBOSE=1
-
-# Interactive UI (legacy)
-make app
-```
-
----
-
-## Complete Pipeline
-
-```
-INPUT: Text passage
-   ↓
-[PHASE 1: KNOWLEDGE GRAPH EXTRACTION]
-   ├─ [1] NER + dependency parsing → Triple objects
-   ├─ [2] Heuristic coreference resolution  
-   └─ [3] Build directed graph (nodes=entities, edges=relations)
-   ↓
-[PHASE 2: QUESTION GENERATION & SCORING]
-   ├─ [4] Generate candidates across 3 tiers:
-   │    ├─ Retrieval tier: single-hop single-node & subgraph candidates
-   │    ├─ Inferential tier: multi-hop chain single-node & subgraph candidates
-   │    └─ Critical tier: complex reasoning single-node & subgraph candidates (TBD)
-   │    Then: Filter by difficulty → Deduplicate → Sort by difficulty
-   └─ [5] Estimate difficulty (text-side + question-side)
-   ↓
-[PHASE 3: DIFFICULTY VARIANTS]
-   ├─ [6a] Stanza POS+depparse: find content VERB token (not AUX), prefer syntactic root
-   │         e.g., "What did Microsoft do?" → "do" (skips auxiliary "did")
-   ├─ [6b] Look up token frequency (wordfreq or local vocab)
-   ├─ [6c] CEFR classification via percentile bins (A1=30%, A2=25%, B1=20%, B2=15%, C1=7%, C2=3%)
-   ├─ [6d] Find Word2Vec synonym at target CEFR level
-   ├─ [6e] Replace verb while preserving sentence structure
-   └─ [6f] Deduplicate (skip if text unchanged)
-   ↓
-OUTPUT: Questions with variants at A1–C2 levels
-```
-
----
-
-## Phase 1 — Knowledge Graph Extraction
-
-### NER + Relation Extraction
-
-Uses Stanza (tokenize, NER, POS, lemma, depparse). Each sentence produces `Triple` objects:
-
-```
-"Nokia was founded in 1865 in Tampere by Fredrik Idestam."
-
-Triples:
-  (Nokia, found_in,  1865)            is_passive=True
-  (Nokia, found_in,  Tampere)         is_passive=True
-  (Nokia, found_by,  Fredrik Idestam) is_passive=True
-```
-
-Handles: active and passive voice, coordinated subjects/objects, Finnish passive without explicit subject, copula sentences, Finnish agentive postposition (`Idestamin toimesta`), Finnish case lemmatisation.
-
-### Triple Fields (signals carried to difficulty)
-
-| Field | Description |
-|---|---|
-| `sentence_idx` | Which sentence the triple came from |
-| `source_depth` | Clausal embedding depth of the source sentence |
-| `answer_depth` | Dependency tree depth of the object token |
-| `is_passive` | Passive voice extraction |
-| `coref_distance` | Sentences between reference and antecedent (set by coref step) |
-
-### Coreference Resolution
-
-Heuristic resolution tracks sentence indices. Sets `coref_distance = sentence_idx − antecedent_sentence_idx` on the resolved triple, so later difficulty scoring can penalise long-range references.
-
----
-
-## Phase 2 — Question Generation & Scoring
-
-Questions are organised into two categories based on how they are constructed from the knowledge graph.
-
----
-
-### Category 1 — Single node questions
-
-One edge, one masked node. The answer is a single entity or a list of entities.
-
-**Difficulty controller: hop count** — 1-hop asks directly about a single edge. 2-hop (chain) requires reasoning through a bridge entity ("What did the founder of Nokia establish?"). Higher hop count = harder reasoning path.
-
-| Question type | Answer node type | Siblings? | Example | Answer |
+| Step | Name | Input | Output | Status |
 |---|---|---|---|---|
-| wh- object | DATE | no | "When did Nokia acquire Mobira?" | entity |
-| wh- object | PERSON | no | "Who founded Nokia?" | entity |
-| wh- object | GPE/LOC | no | "Where was Nokia founded?" | entity |
-| wh- object | ORG/other | no | "What did Nokia acquire?" | entity |
-| wh- object | ORG/other | yes | "What organizations did Nokia acquire?" | list of entities |
-| wh- subject | ORG | no | "What acquired Mobira?" | entity |
-| wh- subject | PERSON | no | "Who founded Nokia?" | entity |
-| yes/no | any | — | "Did Nokia acquire Mobira?" | bool |
-| which | ORG/PERSON/GPE | yes | "Which org did Nokia acquire in 1982?" | entity |
-| temporal comparison | DATE | yes | "Which was acquired earlier, A or B?" | entity |
-| number comparison | MONEY/CARDINAL | yes | "Which acquisition cost more, A or B?" | entity |
+| **0** | Baseline QG | `passage` | `question` | data ready, training pending |
+| **1** | QDE | `passage + question + answer` | `EASY / MEDIUM / HARD` | code done, training pending |
+| **2** | Difficulty-controlled QG | `passage + difficulty` | `question` | data ready, training pending |
+| **3** | Focus-span QG | `passage + focus_span` | `question` | data TBD |
+| **4** | Full (M6) | `passage + focus_span + difficulty` | `question` | depends on 1+3 |
 
-**Notes:**
-- Answer node type determines the question word: DATE→When, PERSON→Who, GPE/LOC→Where, else→What
-- When siblings exist (same subject + verb + answer type), wh- object promotes automatically to the aggregation template with a type noun ("What **organizations**…") and `answer_list`
-- Chain questions are wh- questions with hop count ≥ 2, not a separate type. The bridge entity must be a PERSON.
+**Step 4** is the main novelty: QDE (Step 1) enriches HotpotQA/MultiRC with difficulty labels → combined training for focus-span + difficulty controlled generation. Answer span is dropped as input.
+
+See `docs/experiment_plan.md` for full details.
 
 ---
 
-### Category 2 — Anchor node questions
-
-One anchor node, all connected event clusters. The answer is a list of event sentences.
-
-**Difficulty controllers:**
-- **Fact count** — how many events the learner must recall (more = harder)
-- **Traversal depth** — depth 1: direct edges only; depth 2: also events from anchor's neighbors
-
-**Construction strategy (group-first):**
-1. Cluster edges by `(subject, verb_base)` to form event groups
-2. For each group, identify the anchor node that grounds the cluster (subject, DATE, GPE, or PERSON in context)
-3. Render each event cluster as an event sentence
-4. Generate the question based on anchor type
-
-| Question type | Anchor node type | Example | Answer |
-|---|---|---|---|
-| temporal | DATE | "What happened in 1982?" | list of event sentences |
-| location | GPE/LOC | "What happened in Tampere?" | list of event sentences |
-| person | PERSON | "What did Fredrik Idestam do?" | list of event sentences |
-| org | ORG | "What has Nokia been involved in?" | list of event sentences |
-
-Templates are in `question_generation/templates/` (`_en.py`, `_fi.py`). Each question type has a **single A1 base-form template** — difficulty variation is handled entirely by Word2Vec verb replacement in Phase 3. Finnish is supported for `object`, `subject`, and `chain` types.
-
----
-
-### Difficulty Estimation
-
-#### Four-Component Scoring Model
-
-Overall difficulty combines four independent components, each normalised to [0, 1]:
+## Modules
 
 ```
-combined = (score_type + score_local + score_vocab + score_readability) / 4
-```
+question_difficulty/         Question Difficulty Estimator (QDE)
+  methods/
+    feature_based/           GradientBoosting + 14 linguistic features
+    encoder/                 RoBERTa/DeBERTa fine-tune ([CLS] classifier)
+    contrastive/             Triplet loss + projection head + LR probe
+  scripts/
+    prepare_qde_data.py      SQuAD→EASY, RACE-middle→MEDIUM, RACE-high→HARD
+    train_feature_based.py
+    train_encoder.py
+    train_contrastive.py
+  slurms/                    Mahti GPU jobs for encoder + contrastive training
+  docs/
+    cognitive_difficulty_estimation.md   QDE design and method comparison
 
-This simple average is then mapped to the 8-level CEFR scale (preA1 → C2+).
+question_generation/         Question Generation (seq2seq T5)
+  scripts/
+    build_qg_dataset.py      SQuAD + KG extraction pipeline
+    add_difficulty_annotations.py   Haiku-based cognitive difficulty labelling
+    prepare_t5_inputs.py     Format JSONL → T5 input strings (M1–M5)
+    train_seq2seq.py         T5 fine-tuning
+  slurms/
+    train_qg_t5base.job      Main Mahti job (array over model types)
+  docs/
+    experiment_plan.md       Experimental conditions and training plan
+    evaluation_plan.md       Metrics and evaluation procedure
+    related_work_qg.md       Literature survey
 
-##### Component 1: Question Form Complexity (score_type)
-
-How complex the question form is itself:
-
-| Question type | Score |
-|---|---|
-| yes/no | 0.0 (simplest) |
-| wh- questions | 0.2–0.4 |
-| which/comparison | 0.4 |
-| aggregation | 0.5 |
-| chain (multi-hop) | 0.6 (hardest) |
-
-##### Component 2: Answer Extraction Difficulty (score_local)
-
-How hard it is to locate and parse the answer within the knowledge graph and sentence:
-
-| Signal | Normalisation |
-|---|---|
-| Source clause depth | Clausal embeddings (`relcl`, `advcl`, …): depth ≤ 3 |
-| Answer tree depth | Dependency depth of answer token: depth ≤ 2 |
-| Coreference distance | Sentences between pronoun and antecedent: distance ≤ 3 |
-
-**Formula:** `score_local = (depth + answer + coref) / 3`
-
-##### Component 3: Question Phrasing Complexity (score_vocab)
-
-How complex the question phrasing is:
-
-| Feature | Score |
-|---|---|
-| Passive voice construction | +0.5 |
-| Nominalization (chain uses noun phrase) | +0.5 |
-| **Max:** | 1.0 |
-
-##### Component 4: Passage Readability (score_readability)
-
-How hard the passage is overall to read, using a **finetuned BERT model** for CEFR classification:
-
-- **Primary method:** [`AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2`](https://huggingface.co/AbdullahBarayan/ModernBERT-base-reference_AllLang2-Cefr2) (HuggingFace transformer-based CEFR classifier, when available)
-- **Fallback method:** LIX (Läsbarhetsindex) formula for unknown languages
-
-**Fallback formula (LIX):**
-
-```
-LIX = words/sentences + long_words×100/words
-```
-
-`long_words` = words longer than 6 characters (after stripping trailing punctuation). Normalised from the practical range [20, 65] → [0, 1]:
-
-```
-readability = clamp((LIX − 20) / 45, 0, 1)
-```
-
-| LIX | Typical text |
-|---|---|
-| 20–30 | Children's books, simple news |
-| 30–40 | Popular press |
-| 40–50 | Standard non-fiction |
-| 50–60 | Academic / technical |
-| 60+ | Legal / scientific |
-
-#### CEFR Level Thresholds
-
-After combining the four components, the averaged score [0, 1] is mapped to an 8-level CEFR scale using evenly-spaced thresholds (1/7 intervals):
-
-| Combined score | Level |
-|---|---|
-| ≥ 0.929 | C2+ |
-| ≥ 0.786 | C2 |
-| ≥ 0.643 | C1 |
-| ≥ 0.500 | B2 |
-| ≥ 0.357 | B1 |
-| ≥ 0.214 | A2 |
-| ≥ 0.071 | A1 |
-| ≥ 0.000 | preA1 |
-
-**Implementation:** `question_generation/difficulty/base.py` (ABC + normalisation) and `question_generation/difficulty/rule_based.py` (concrete scoring).
-
----
-
-## Difficulty Variant Generation (Phase 3)
-
-After questions are generated and difficulty is estimated, **difficulty variants** are created by replacing main verbs with semantically similar synonyms at different CEFR levels.
-
-### Pipeline
-
-1. **Verb Extraction** — Stanza parses the question with POS + dependency parsing. The syntactic root token with `upos=VERB` is selected. Auxiliaries (`upos=AUX`) are skipped, so "did" in "What did Microsoft do?" is never picked — "do" is. Light verbs (`do`, `be`, `have`, `get`) are skipped entirely — no meaningful synonyms exist for them.
-2. **Frequency Lookup** — Look up token frequency using wordfreq (English) or local vocab (Finnish)
-3. **CEFR Classification** — Map frequency to CEFR level using **percentile-based bins**:
-   - **A1** (easiest): Top 30% most frequent words
-   - **A2**: 30-55% 
-   - **B1**: 55-75%
-   - **B2**: 75-90%
-   - **C1**: 90-97%
-   - **C2** (hardest): 97-100% least frequent
-
-4. **Word2Vec Synonym Lookup** — Find Word2Vec neighbors at target CEFR level using:
-   - Google Word2Vec (English) or FastText-wiki (Finnish)
-   - Similarity threshold: 0.5+
-   - Accept exact CEFR match or ±2 levels if high similarity (>0.55)
-
-5. **Morphological Re-inflection** — The W2V result is lemmatized (Stanza), then re-inflected to the original verb's Penn Treebank form using `pyinflect`. E.g., "occurring" (C1 neighbor of "happened") → lemma "occur" → re-inflected VBD → "occurred". This ensures the synonym fits the sentence grammar regardless of which form W2V returns.
-
-6. **Verb Replacement** — Replace the original inflected form in the question with the re-inflected synonym.
-
-7. **Deduplication** — Only keep variant if text actually changed; skip duplicates across levels.
-
-### Example
-
-**Original question (A1 difficulty):**
-```
-"When was Microsoft founded?"
-```
-
-**Generated variants:**
-- **A1**: "When was Microsoft found?" (simplest form)
-- **A2**: "When was Microsoft started?" (more common synonym)
-- **B1**: "When was Microsoft created?" (less common)
-- **B2**: "When was Microsoft established?" (rare)
-- **C1**: "When was Microsoft instituted?" (very rare)
-
-### Limitations
-
-⚠️ **Word2Vec coverage is incomplete:**
-- Only works for verbs that have high-similarity neighbors at different CEFR levels
-- Some verbs (e.g., domain-specific terminology) may not have good synonyms
-- When no variant is found at a target level, the original verb is kept
-- If a question cannot generate any unique variants, only the original question is kept
-
----
-
-## File Structure
-
-```
-knowledge_graph/
-├── extractor.py      NER + dependency parsing → Triple objects
-├── graph.py          KnowledgeGraph (NetworkX MultiDiGraph) + multihop_paths
-└── coref.py          Heuristic pronoun/partial-name coreference + coref_distance
-
-question_generation/
-├── generator.py              Orchestrator — selects method, delegates generation
-├── models.py                 Question dataclass (text, answer, difficulty, …)
-├── difficulty/               Shared across all methods
-│   ├── base.py               DifficultyEstimator ABC + CEFR thresholds
-│   ├── rule_based.py         RuleBasedEstimator (text_max=28, question_max=10)
-│   └── cefr_readability.py   ModernBERT readability scorer + LIX fallback
-└── methods/
-    ├── base.py               QGMethod ABC — generate(text, anchor, cefr, lang, subgraph)
-    ├── template/             Rule-based generation (current, fully implemented)
-    │   ├── generator.py      TemplateMethod
-    │   ├── question_types/   Retrieval / inferential / critical question handlers
-    │   ├── templates/        _en.py + _fi.py — single A1 base-form templates per type
-    │   ├── variant_processor.py  Stanza POS → W2V lookup → pyinflect re-inflection
-    │   └── word2vec_variants.py  Percentile-based CEFR binning + gensim lookup
-    ├── seq2seq/              Linearized KG → T5/FinT5 decoder (NOT YET IMPLEMENTED)
-    │   ├── generator.py      Seq2SeqMethod
-    │   └── linearizer.py     Triples → "E | rel | E . E | rel | E" flat string
-    ├── gnn/                  GNN encoder → T5 decoder (NOT YET IMPLEMENTED)
-    │   ├── generator.py      GNNMethod
-    │   └── encoder.py        GraphSAGE/GAT message passing → node embeddings
-    └── llm/                  Raw text + anchor → Claude/GPT (NOT YET IMPLEMENTED)
-        ├── generator.py      LLMMethod — no KG needed, works on abstract passages
-        └── prompt.py         CEFR-conditioned prompt templates (EN + FI)
+knowledge_graph/             KG extraction from passages (used by M3/M4)
+  extractor.py               NER + dependency parsing → Triple objects
+  graph.py                   NetworkX MultiDiGraph
+  coref.py                   Heuristic coreference resolution
 
 scripts/
-├── question_generation_streamlit.py  Interactive UI
-└── demo_variants.py                  CLI — make questions INPUT=...
-
-data/
-├── en/
-│   ├── microsoft.txt         English demo passage
-│   ├── cern.txt
-│   └── ... (vocab/ git-ignored)
-├── fi/
-│   ├── demo.txt              Finnish demo passage
-│   └── ... (vocab/ git-ignored)
-└── output/                   Generated reports (git-ignored)
+  download_resources.py      Download SQuAD, RACE, model weights
 ```
+
+### Legacy note
+
+`question_generation/difficulty/` contains the old rule-based difficulty estimator (Bloom-level heuristics + CEFR scoring). It is not used in the new roadmap but kept for reference. The new QDE lives in `question_difficulty/`.
 
 ---
 
-## Running
+## Datasets
+
+| Dataset | HF path | Role |
+|---|---|---|
+| RACE++ | `chujiezheng/RACE++` | QDE labels (middle→EASY, high→MEDIUM, college→HARD) + Steps 0 & 2 QG training |
+| HotpotQA | `hotpot_qa` distractor | Steps 0 & 3 (supporting\_facts as focus span; filter `type=="comparison"`) |
+| MultiRC | `super_glue` multirc | Steps 0 & 3 (evidence sentences as focus span) |
+
+---
+
+## Setup
 
 ```bash
-# Generate questions with difficulty variants (default: auto-save to data/output/)
-make questions INPUT=data/en/microsoft.txt TARGET_CEFR=C1
+# Download datasets and weights
+python scripts/download_resources.py
 
-# Different target CEFR level
-make questions INPUT=data/en/microsoft.txt TARGET_CEFR=B1
+# Prepare QDE training data
+python question_difficulty/scripts/prepare_qde_data.py
 
-# Print to terminal (verbose)
-make questions INPUT=data/en/microsoft.txt VERBOSE=1
-
-# Custom output file
-make questions INPUT=data/en/microsoft.txt OUTPUT=my_report.md TARGET_CEFR=B1
-
-# Interactive UI
-make app
+# Prepare T5 inputs for QG (e.g., M2 = difficulty-controlled)
+python question_generation/scripts/prepare_t5_inputs.py --model-types m2
 ```
 
-**Output:** Markdown report with timestamp, input text, questions table, and knowledge graph statistics.
+Mahti training: push to git → `git pull` on Mahti → `sbatch <job>`.
 
 ---
 
-## Known Limitations
+## Model Naming
 
-### Question Generation
-- **Relation labels** are shallow (verb lemma + preposition only); complex semantic relations may be missed
-- **Finnish question types** — only `object`, `subject`, and `chain` forms; yes/no, comparison, which, aggregation are English-only
-- **Coreference heuristic** fails with multiple persons of the same gender in the same passage
-- **Aggregation deduplication** — one question per (subject, verb) pair; different phrasings are collapsed
-- **0-hop questions** (entity-type definitions, e.g. "What is Nokia?") are not generated — too trivial
-- **Entity extraction noise** — NER and extraction may include non-entities (company, domain, etc. with `None` type)
-
-### Abstract Text — 0 Questions Generated
-
-The pipeline is **entity-centric**: it requires named entities (PERSON, ORG, DATE, GPE) as anchors to build questions. Abstract, argumentative, or conceptual passages (e.g. academic essays, opinion pieces) produce triples where all entity types are `None`, resulting in 0 questions generated.
-
-**Example of a failing passage:**
-```
-"The proliferation of artificial intelligence has fundamentally altered clinical practice.
- Critics contend that algorithmic diagnoses lack the contextual sensitivity…"
-```
-All extracted triples have `subj_type=None, obj_type=None` → no question templates match.
-
-**Workaround (short-term):** Ensure the passage contains concrete named entities — real organizations, people, dates, and locations — even when the topic is abstract. For example, grounding the same topic around "DeepMind developed X in 2019" enables question generation.
-
-**Future solution — LLM fallback:**
-When KG extraction yields fewer than N typed-entity triples, fall back to an LLM-based question generator that can reason over abstract concepts directly. The LLM output would be merged with any KG-derived questions, with difficulty estimated via the same readability + question-form scoring model. This keeps the KG pipeline as the primary path and only pays the LLM cost for genuinely abstract passages.
-
-### Difficulty Variant Generation
-- **Word2Vec coverage is incomplete** — Not all verbs have semantic neighbors at every CEFR level
-  - If no synonym found at target level, the original verb is kept
-  - Some questions may not have variants at all difficulty levels (e.g., all A1)
-  - This is acceptable — better one good question than multiple duplicates with false difficulties
-  - **Google News corpus bias** — Google Word2Vec is trained on news text, so neighbors reflect news/sports context. For example, `mark` (B1) returns `eclipsing`, `surpassing`, `milestone` (all C2) rather than simpler synonyms like `happen` or `occur`. General-purpose verbs in non-news contexts are poorly served.
-  
-- **Percentile-based CEFR binning** assumes word frequency correlates with CEFR level
-  - Works well for common words (common → easy)
-  - Limited coverage for specialized/technical vocabulary
-  - Finnish frequency data requires local vocabulary files (git-ignored)
-
-- **Limited unique synonyms per verb** — Word2Vec may find only 2–3 usable synonyms for a given verb (e.g., "happened" → "occurred", "transpired", "unfolded"). When fewer synonyms exist than CEFR levels, some levels collapse to the same text and are deduplicated away. This is a coverage limitation of the Google News corpus, not a bug.
-
-- **Verb extraction depends on Stanza POS quality** — Stanza correctly distinguishes `VERB` vs `AUX` in most English and Finnish constructions; edge cases (irregular verbs, fixed phrases) may fail
-
-### Other
-- **IRT calibration** — empirical β estimates require real learner response data (Phase 2 goal)
+| ID | Description | Input |
+|---|---|---|
+| M1 | Baseline | `passage` |
+| M2 | + haiku\_cog difficulty token | `passage + <difficulty>` |
+| M3 | + linearized KG | `passage + kg_text + <difficulty>` |
+| M4 | + KG + difficulty | `passage + kg_text + <difficulty>` |
+| M5 | Curriculum labels (SQuAD+RACE) | `passage + <difficulty>` |
+| M6 | Focus span + difficulty (Step 4) | `passage + focus_span + <difficulty>` |
