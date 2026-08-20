@@ -1,6 +1,11 @@
 #!/bin/bash
-# Run on the Mahti login node before submitting training jobs.
+# Run on the Roihu login node before submitting training jobs.
 # Downloads HF datasets to cache, then prepares all training data files.
+#
+# ⚠️  BEFORE SSH-ING IN: renew your CSC certificate (valid 24h) if needed:
+#   cp ~/Downloads/cert*.pub ~/.ssh/my_csc_key-cert.pub
+#   ssh-keygen -L -f ~/.ssh/my_csc_key-cert.pub | grep Valid   # check expiry
+#   Download fresh cert from: https://my.csc.fi → Profile → SSH PUBLIC KEYS
 #
 # Usage:
 #   bash scripts/prepare_all_data.sh
