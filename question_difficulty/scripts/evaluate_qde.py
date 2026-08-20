@@ -162,19 +162,23 @@ def main() -> None:
     # Encoder
     for backbone in ["roberta-base", "microsoft_deberta-v3-base"]:
         d = model_dir / "encoder" / backbone
-        if (d / "best_model.pt").exists():
+        if (d / "best_model.pt").exists() and (d / "config.json").exists():
             name = f"encoder/{backbone}"
             print(f"\nEvaluating: {name}", flush=True)
             results[name] = metrics(y_true, predict_encoder(records, d, args.batch_size))
+        elif d.exists():
+            print(f"\nSkipping encoder/{backbone} — training still in progress")
 
     # Contrastive
     for backbone in ["roberta-base", "microsoft_deberta-v3-base"]:
         for mode in ["same_class", "ordinal", "mixed"]:
             d = model_dir / "contrastive" / backbone / mode
-            if (d / "best_model.pt").exists():
+            if (d / "best_model.pt").exists() and (d / "config.json").exists():
                 name = f"contrastive/{backbone}/{mode}"
                 print(f"\nEvaluating: {name}", flush=True)
                 results[name] = metrics(y_true, predict_contrastive(records, d, args.batch_size))
+            elif d.exists():
+                print(f"\nSkipping contrastive/{backbone}/{mode} — training still in progress")
 
     # Comparison table
     print("\n" + "=" * 82)
