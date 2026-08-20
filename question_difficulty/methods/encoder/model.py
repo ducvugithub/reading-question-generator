@@ -26,4 +26,4 @@ class EncoderQDE(nn.Module):
         out = self.encoder(**kwargs)
         # Use [CLS] token representation
         cls = out.last_hidden_state[:, 0, :]
-        return self.classifier(self.drop(cls))
+        return self.classifier(self.drop(cls.to(self.classifier.weight.dtype)))
