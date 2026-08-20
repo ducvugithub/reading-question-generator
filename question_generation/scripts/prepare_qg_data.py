@@ -151,7 +151,7 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
     from datasets import load_dataset
 
     try:
-        ds = load_dataset("allenai/multirc", split="train", trust_remote_code=True)
+        ds = load_dataset("allenai/multirc", split="train")
         use_allenai = True
     except Exception:
         print("  [warn] allenai/multirc unavailable — falling back to aps/super_glue multirc "
