@@ -27,6 +27,9 @@ export HF_HOME=/scratch/project_2006600/ducvu/hf_cache
 export HF_DATASETS_CACHE=/scratch/project_2006600/ducvu/hf_cache/datasets
 export TRANSFORMERS_CACHE=/scratch/project_2006600/ducvu/hf_cache
 
+module purge
+module load python-pytorch/2.10
+
 cd /scratch/project_2006600/ducvu/reading-question-generator
 
 echo "=== Downloading HF datasets ==="
