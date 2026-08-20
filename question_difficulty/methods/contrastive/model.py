@@ -32,5 +32,5 @@ class ContrastiveQDE(nn.Module):
             kwargs["token_type_ids"] = token_type_ids
         out = self.encoder(**kwargs)
         cls = self.drop(out.last_hidden_state[:, 0, :])
-        emb = self.projector(cls)
+        emb = self.projector(cls.to(next(self.projector.parameters()).dtype))
         return F.normalize(emb, dim=-1)  # unit sphere → cosine == dot product
