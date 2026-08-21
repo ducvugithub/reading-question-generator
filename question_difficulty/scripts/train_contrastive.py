@@ -23,6 +23,7 @@ import random
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
@@ -288,6 +289,11 @@ def main() -> None:
     test_embs, test_labels = extract_embeddings(
         model, test_records,  tokenizer, args.max_len, args.batch_size, device
     )
+
+    if np.isnan(train_embs).any():
+        print("WARNING: embeddings contain NaN — embedding collapse detected. "
+              "Try a lower learning rate. Skipping probe fit.", flush=True)
+        return
 
     clf = LogisticRegression(max_iter=300, random_state=42)
     clf.fit(train_embs, train_labels)
