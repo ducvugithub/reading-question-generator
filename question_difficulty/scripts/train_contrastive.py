@@ -286,6 +286,9 @@ def main() -> None:
     print(f"\nBest val_acc={best_val_acc:.4f} at epoch {best_epoch}", flush=True)
 
     # Phase 2: fit final classifier on best checkpoint embeddings
+    if not (out_dir / "best_model.pt").exists():
+        print("No best_model.pt saved (all epochs had NaN embeddings). Aborting.", flush=True)
+        return
     model.load_state_dict(torch.load(out_dir / "best_model.pt", map_location=device))
     train_embs, train_labels = extract_embeddings(
         model, train_records, tokenizer, args.max_len, args.batch_size, device

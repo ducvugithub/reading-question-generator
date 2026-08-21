@@ -16,7 +16,7 @@ from transformers import AutoModel
 class ContrastiveQDE(nn.Module):
     def __init__(self, model_name: str, embed_dim: int = 256, dropout: float = 0.1):
         super().__init__()
-        self.encoder = AutoModel.from_pretrained(model_name)
+        self.encoder = AutoModel.from_pretrained(model_name).float()
         hidden = self.encoder.config.hidden_size
         self.drop = nn.Dropout(dropout)
         # Two-layer projection head — standard in contrastive learning
