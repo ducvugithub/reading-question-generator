@@ -246,7 +246,10 @@ def main() -> None:
             positive_emb = _fwd("positive")
             negative_emb = _fwd("negative")
 
-            loss = triplet_loss(anchor_emb, positive_emb, negative_emb)
+            triplet = triplet_loss(anchor_emb, positive_emb, negative_emb)
+            all_embs = torch.cat([anchor_emb, positive_emb, negative_emb], dim=0)
+            std_penalty = -all_embs.std(dim=0).mean()
+            loss = triplet + 0.01 * std_penalty
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
