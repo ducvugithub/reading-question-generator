@@ -261,9 +261,13 @@ def main() -> None:
         val_embs, val_labels = extract_embeddings(
             model, val_records, tokenizer, args.max_len, args.batch_size, device
         )
-        probe = LogisticRegression(max_iter=300, random_state=42)
-        probe.fit(train_embs, train_labels)
-        val_acc = probe.score(val_embs, val_labels)
+        if np.isnan(train_embs).any():
+            print(f"Epoch {epoch}: WARNING NaN embeddings — skipping val probe", flush=True)
+            val_acc = 0.0
+        else:
+            probe = LogisticRegression(max_iter=300, random_state=42)
+            probe.fit(train_embs, train_labels)
+            val_acc = probe.score(val_embs, val_labels)
 
         print(
             f"Epoch {epoch}/{args.epochs}  "
