@@ -7,12 +7,12 @@ Methods evaluated (skipped if model files are missing):
   encoder/roberta-base    — Fine-tuned RoBERTa
   encoder/deberta-v3-base — Fine-tuned DeBERTa
   contrastive/*/mixed     — Contrastive encoder + LR probe
-
-LLM-verdict is run separately via evaluate_llm_verdict.py (requires ANTHROPIC_API_KEY).
+  llm_verdict             — Zero-shot LLM judgment (from JSONL predictions file)
 
 Usage:
   python question_difficulty/scripts/evaluate_qde.py
   python question_difficulty/scripts/evaluate_qde.py --batch-size 64
+  python question_difficulty/scripts/evaluate_qde.py --llm-predictions predictions_llm_verdict.jsonl
 """
 from __future__ import annotations
 
@@ -46,6 +46,21 @@ def metrics(y_true: list[int], y_pred: list[int]) -> dict:
         "f1_medium": float(per_class[1]),
         "f1_hard":   float(per_class[2]),
     }
+
+
+def load_llm_predictions(pred_path: Path, y_true: list[int]) -> list[int]:
+    """Load LLM predictions from JSONL file; must match test set order."""
+    y_pred = []
+    for line in pred_path.open(encoding="utf-8"):
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        pred_label = _LABEL_MAP.get(rec["pred_label"].lower())
+        if pred_label is not None:
+            y_pred.append(pred_label)
+    if len(y_pred) != len(y_true):
+        raise ValueError(f"Prediction count ({len(y_pred)}) != test set size ({len(y_true)})")
+    return y_pred
 
 
 # ── Feature-based ──────────────────────────────────────────────────────────────
@@ -138,10 +153,12 @@ def predict_contrastive(records: list[dict], model_dir: Path, batch_size: int) -
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir",   default="data/qde")
     parser.add_argument("--model-dir",  default="question_difficulty/models")
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--llm-predictions", default=None,
+                        help="JSONL file with LLM-verdict predictions (from evaluate_llm_verdict.py)")
     args = parser.parse_args()
 
     data_dir  = Path(args.data_dir)
@@ -180,6 +197,16 @@ def main() -> None:
             elif d.exists():
                 print(f"\nSkipping contrastive/{backbone}/{mode} — training still in progress")
 
+    # LLM-verdict from file
+    if args.llm_predictions:
+        pred_path = Path(args.llm_predictions)
+        if pred_path.exists():
+            print(f"\nEvaluating: llm_verdict (from {pred_path})", flush=True)
+            y_pred = load_llm_predictions(pred_path, y_true)
+            results["llm_verdict"] = metrics(y_true, y_pred)
+        else:
+            print(f"Warning: {pred_path} not found, skipping LLM-verdict")
+
     # Comparison table
     print("\n" + "=" * 82)
     print(f"{'Method':<47} {'MacroF1':>8} {'Acc':>7} {'F1-E':>6} {'F1-M':>6} {'F1-H':>6}")
@@ -188,7 +215,10 @@ def main() -> None:
         print(f"{name:<47} {m['macro_f1']:>8.4f} {m['accuracy']:>7.4f}"
               f" {m['f1_easy']:>6.4f} {m['f1_medium']:>6.4f} {m['f1_hard']:>6.4f}")
     print("=" * 82)
-    print("LLM-verdict: run evaluate_llm_verdict.py separately (needs ANTHROPIC_API_KEY)")
+    if not args.llm_predictions:
+        print("To include LLM-verdict: python question_difficulty/scripts/evaluate_llm_verdict.py \
+--output predictions.jsonl")
+        print("Then re-run with: --llm-predictions predictions.jsonl")
 
 
 if __name__ == "__main__":

@@ -1,34 +1,30 @@
 #!/usr/bin/env python3
 """
-Zero-shot LLM-as-judge Question Difficulty Estimator.
+Infer question difficulty using LLM (zero-shot), save predictions to file.
 
-No training required — prompts an LLM to rate each (passage, question, answer)
-triple as EASY / MEDIUM / HARD, then reports macro F1 against RACE curriculum labels.
+Prompts an LLM to rate each (passage, question, answer) triple as EASY / MEDIUM / HARD.
+Saves predictions to JSONL (one per line with true/pred labels for later evaluation).
 
-This is the zero-shot baseline; all other QDE methods (feature-based, encoder,
-contrastive) are trained on the same RACE labels. Comparing macro F1 tells you how
-much fine-tuning adds over a capable LLM's zero-shot judgment.
+No training required. Use with evaluate_qde.py --llm-predictions to compare against trained methods.
 
-Supports multiple backends: Claude API, AWS Bedrock, local models (Ollama/vLLM).
+Supports: Claude API (default), AWS Bedrock, local models (Ollama/vLLM).
 
 Usage:
-  # Claude API (default, cheapest for small evals)
+  # Claude API (cheapest, ~$0.94 for 3755 examples)
   export ANTHROPIC_API_KEY=sk-ant-...
-  python question_difficulty/scripts/evaluate_llm_verdict.py --limit 100
+  python question_difficulty/scripts/qde_infer_llm.py \
+    --output question_difficulty/results/predictions_llm_verdict.jsonl --limit 3755
 
-  # AWS Bedrock (after `aws sso login --profile <profile>`)
-  aws sso login --profile fsecure-ml-experimental-ci-PowerUser
-  python question_difficulty/scripts/evaluate_llm_verdict.py --backend bedrock \
-    --model anthropic.claude-3-haiku-20240307-v1:0 --limit 100
+  # AWS Bedrock
+  python question_difficulty/scripts/qde_infer_llm.py --backend bedrock \
+    --output predictions.jsonl --limit 3755
 
-  # AWS Bedrock with explicit profile
-  python question_difficulty/scripts/evaluate_llm_verdict.py --backend bedrock \
-    --aws-profile fsecure-ml-experimental-ci-PowerUser --limit 100
-
-  # Local model (Ollama running on localhost:11434)
+  # Local model (Ollama)
   ollama run llama2
-  python question_difficulty/scripts/evaluate_llm_verdict.py --backend local \
-    --model llama2 --limit 100
+  python question_difficulty/scripts/qde_infer_llm.py --backend local \
+    --model llama2 --output predictions.jsonl --limit 3755
+
+Then evaluate with: evaluate_qde.py --llm-predictions predictions.jsonl
 """
 from __future__ import annotations
 
@@ -39,6 +35,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from tqdm import tqdm
 
 _LABEL_MAP = {"easy": 0, "medium": 1, "hard": 2}
 _LABEL_NAMES = ["EASY", "MEDIUM", "HARD"]
@@ -99,33 +96,31 @@ class AnthropicBackend(LLMBackend):
 
 
 class BedrockBackend(LLMBackend):
-    """AWS Bedrock backend."""
+    """AWS Bedrock backend using langchain."""
 
     def __init__(self, model: str, region: str = "us-east-1", profile: str | None = None):
         try:
-            import boto3
+            from langchain_aws import ChatBedrockConverse
+            from langchain_core.messages import HumanMessage, SystemMessage
         except ImportError:
-            print("Error: boto3 package not installed. Run: pip install boto3")
+            print("Error: langchain-aws and langchain-core required. Run: pip install langchain-aws langchain-core")
             sys.exit(1)
-        if profile:
-            session = boto3.Session(profile_name=profile)
-        else:
-            session = boto3.Session()
-        self.client = session.client("bedrock-runtime", region_name=region)
-        self.model = model
+        self.llm = ChatBedrockConverse(
+            model=model,
+            region_name=region,
+            temperature=0,
+            max_tokens=64,
+        )
+        self.SystemMessage = SystemMessage
+        self.HumanMessage = HumanMessage
 
     def query(self, system_prompt: str, user_prompt: str, max_tokens: int = 64) -> str:
-        prompt = f"{system_prompt}\n\n{user_prompt}"
-        response = self.client.invoke_model(
-            modelId=self.model,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-06-01",
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            }),
-        )
-        result = json.loads(response["body"].read())
-        return result["content"][0]["text"].strip()
+        messages = [
+            self.SystemMessage(content=system_prompt),
+            self.HumanMessage(content=user_prompt),
+        ]
+        response = self.llm.invoke(messages)
+        return response.content.strip()
 
 
 class LocalBackend(LLMBackend):
@@ -174,7 +169,7 @@ def evaluate_split(
     true_labels, pred_labels = [], []
     n = len(records)
 
-    for i, rec in enumerate(records):
+    for i, rec in tqdm(enumerate(records), total=n, desc="Inferring"):
         true_label = _LABEL_MAP.get(rec["difficulty"].lower())
         if true_label is None:
             continue
@@ -189,6 +184,7 @@ def evaluate_split(
             answer=rec["answer"],
         )
 
+        text = None
         try:
             text = backend.query(_SYSTEM_PROMPT, user_msg, max_tokens=64)
             pred = _parse_label(text)
@@ -197,14 +193,12 @@ def evaluate_split(
             pred = None
 
         if pred is None:
-            print(f"  [!] Unparseable response on record {i}: {text!r}", flush=True)
+            if text:
+                print(f"  [!] Unparseable response on record {i}: {text!r}", flush=True)
             pred = 1  # fallback to MEDIUM
 
         true_labels.append(true_label)
         pred_labels.append(pred)
-
-        if (i + 1) % 50 == 0:
-            print(f"  {i+1}/{n} done", flush=True)
 
         if delay > 0:
             time.sleep(delay)
@@ -218,8 +212,8 @@ def main() -> None:
     parser.add_argument("--backend",     default="anthropic",
                         choices=["anthropic", "bedrock", "local"],
                         help="LLM backend (default: anthropic)")
-    parser.add_argument("--model",       default="claude-haiku-4-5",
-                        help="Model ID (Claude by default, or Bedrock/local model name)")
+    parser.add_argument("--model",       default=None,
+                        help="Model ID (default: claude-haiku-4-5 for anthropic, anthropic.claude-haiku-4-5-20251001-v1:0 for bedrock)")
     parser.add_argument("--bedrock-region", default="us-east-1",
                         help="AWS region for Bedrock (default: us-east-1)")
     parser.add_argument("--aws-profile",  default=None,
@@ -237,6 +231,15 @@ def main() -> None:
     parser.add_argument("--output",      default=None,
                         help="Write per-record predictions to this JSONL file")
     args = parser.parse_args()
+
+    # Set default model based on backend
+    if args.model is None:
+        if args.backend == "anthropic":
+            args.model = "claude-haiku-4-5"
+        elif args.backend == "bedrock":
+            args.model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        elif args.backend == "local":
+            args.model = "llama2"
 
     # Initialize backend
     if args.backend == "anthropic":
@@ -263,44 +266,30 @@ def main() -> None:
     print(f"Backend : {args.backend}")
     print(f"Model  : {args.model}")
     print(f"Split  : {args.split}  ({len(records)} records)")
-    print(f"Evaluating...", flush=True)
+    if args.output:
+        print(f"Output : {args.output}")
+    print(f"Inferring...", flush=True)
 
     true_labels, pred_labels = evaluate_split(
         records, backend, args.max_passage_words, args.delay
     )
 
-    from sklearn.metrics import classification_report, confusion_matrix, f1_score
-
-    macro_f1 = f1_score(true_labels, pred_labels, average="macro")
-    print(f"\nMacro F1: {macro_f1:.4f}")
-    print(classification_report(true_labels, pred_labels, target_names=_LABEL_NAMES))
-
-    cm = confusion_matrix(true_labels, pred_labels)
-    print("Confusion matrix (rows=true, cols=predicted):")
-    print(f"  {'':8}  {'EASY':>6}  {'MEDIUM':>6}  {'HARD':>6}")
-    for i, name in enumerate(_LABEL_NAMES):
-        print(f"  {name:8}  {cm[i][0]:6}  {cm[i][1]:6}  {cm[i][2]:6}")
-
-    # Label distribution breakdown (shows if LLM is biased toward one class)
-    from collections import Counter
-    pred_dist = Counter(pred_labels)
-    true_dist = Counter(true_labels)
-    print("\nDistribution  true / predicted:")
-    for j, name in enumerate(_LABEL_NAMES):
-        print(f"  {name:8}  true={true_dist[j]:5}  pred={pred_dist[j]:5}")
-
     if args.output:
         out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("w", encoding="utf-8") as f:
             for rec, true, pred in zip(records, true_labels, pred_labels):
                 f.write(json.dumps({
+                    "passage":   rec["passage"],
                     "question":  rec["question"],
+                    "answer":    rec["answer"],
                     "difficulty": rec["difficulty"],
                     "true_label": _LABEL_NAMES[true],
                     "pred_label": _LABEL_NAMES[pred],
                     "correct": true == pred,
                 }, ensure_ascii=False) + "\n")
-        print(f"\nPredictions written to {out_path}")
+        print(f"✓ Predictions saved to {out_path}")
+        print(f"\nNext: python question_difficulty/scripts/evaluate_qde.py --llm-predictions {out_path}")
 
 
 if __name__ == "__main__":

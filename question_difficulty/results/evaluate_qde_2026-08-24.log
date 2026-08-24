@@ -26,13 +26,13 @@ https://scikit-learn.org/stable/model_persistence.html#security-maintainability-
 
 Evaluating: encoder/roberta-base
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 2893.59it/s]
+Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 12272.79it/s]
 [transformers] [1mRobertaModel LOAD REPORT[0m from: roberta-base
 Key                       | Status     | 
 --------------------------+------------+-
-lm_head.layer_norm.bias   | UNEXPECTED | 
 lm_head.bias              | UNEXPECTED | 
 lm_head.dense.weight      | UNEXPECTED | 
+lm_head.layer_norm.bias   | UNEXPECTED | 
 lm_head.layer_norm.weight | UNEXPECTED | 
 lm_head.dense.bias        | UNEXPECTED | 
 pooler.dense.bias         | MISSING    | 
@@ -44,33 +44,33 @@ Notes:
 
 Evaluating: encoder/microsoft_deberta-v3-base
 [transformers] The tokenizer you are loading from 'question_difficulty/models/encoder/microsoft_deberta-v3-base' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
-Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 35234.29it/s]
+Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 32139.02it/s]
 [transformers] [1mDebertaV2Model LOAD REPORT[0m from: microsoft/deberta-v3-base
 Key                                     | Status     |  | 
 ----------------------------------------+------------+--+-
+lm_predictions.lm_head.dense.weight     | UNEXPECTED |  | 
+mask_predictions.LayerNorm.weight       | UNEXPECTED |  | 
+lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED |  | 
+mask_predictions.LayerNorm.bias         | UNEXPECTED |  | 
 lm_predictions.lm_head.LayerNorm.weight | UNEXPECTED |  | 
 mask_predictions.dense.weight           | UNEXPECTED |  | 
-lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED |  | 
-mask_predictions.classifier.bias        | UNEXPECTED |  | 
-lm_predictions.lm_head.dense.weight     | UNEXPECTED |  | 
-lm_predictions.lm_head.bias             | UNEXPECTED |  | 
-lm_predictions.lm_head.dense.bias       | UNEXPECTED |  | 
-mask_predictions.LayerNorm.bias         | UNEXPECTED |  | 
-mask_predictions.LayerNorm.weight       | UNEXPECTED |  | 
-mask_predictions.classifier.weight      | UNEXPECTED |  | 
 mask_predictions.dense.bias             | UNEXPECTED |  | 
+mask_predictions.classifier.weight      | UNEXPECTED |  | 
+lm_predictions.lm_head.bias             | UNEXPECTED |  | 
+mask_predictions.classifier.bias        | UNEXPECTED |  | 
+lm_predictions.lm_head.dense.bias       | UNEXPECTED |  | 
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
 
 Evaluating: contrastive/roberta-base/mixed
-Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 11449.21it/s]
+Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 12071.61it/s]
 [transformers] [1mRobertaModel LOAD REPORT[0m from: roberta-base
 Key                       | Status     | 
 --------------------------+------------+-
-lm_head.layer_norm.bias   | UNEXPECTED | 
 lm_head.bias              | UNEXPECTED | 
 lm_head.dense.weight      | UNEXPECTED | 
+lm_head.layer_norm.bias   | UNEXPECTED | 
 lm_head.layer_norm.weight | UNEXPECTED | 
 lm_head.dense.bias        | UNEXPECTED | 
 pooler.dense.bias         | MISSING    | 
@@ -82,21 +82,21 @@ Notes:
 
 Evaluating: contrastive/microsoft_deberta-v3-base/mixed
 [transformers] The tokenizer you are loading from 'question_difficulty/models/contrastive/microsoft_deberta-v3-base/mixed' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
-Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 33209.59it/s]
+Loading weights:   0%|          | 0/198 [00:00<?, ?it/s]Loading weights: 100%|██████████| 198/198 [00:00<00:00, 62272.96it/s]
 [transformers] [1mDebertaV2Model LOAD REPORT[0m from: microsoft/deberta-v3-base
 Key                                     | Status     |  | 
 ----------------------------------------+------------+--+-
+lm_predictions.lm_head.dense.weight     | UNEXPECTED |  | 
+mask_predictions.LayerNorm.weight       | UNEXPECTED |  | 
+lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED |  | 
+mask_predictions.LayerNorm.bias         | UNEXPECTED |  | 
 lm_predictions.lm_head.LayerNorm.weight | UNEXPECTED |  | 
 mask_predictions.dense.weight           | UNEXPECTED |  | 
-lm_predictions.lm_head.LayerNorm.bias   | UNEXPECTED |  | 
-mask_predictions.classifier.bias        | UNEXPECTED |  | 
-lm_predictions.lm_head.dense.weight     | UNEXPECTED |  | 
-lm_predictions.lm_head.bias             | UNEXPECTED |  | 
-lm_predictions.lm_head.dense.bias       | UNEXPECTED |  | 
-mask_predictions.LayerNorm.bias         | UNEXPECTED |  | 
-mask_predictions.LayerNorm.weight       | UNEXPECTED |  | 
-mask_predictions.classifier.weight      | UNEXPECTED |  | 
 mask_predictions.dense.bias             | UNEXPECTED |  | 
+mask_predictions.classifier.weight      | UNEXPECTED |  | 
+lm_predictions.lm_head.bias             | UNEXPECTED |  | 
+mask_predictions.classifier.bias        | UNEXPECTED |  | 
+lm_predictions.lm_head.dense.bias       | UNEXPECTED |  | 
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
@@ -107,7 +107,7 @@ Method                                           MacroF1     Acc   F1-E   F1-M  
 contrastive/roberta-base/mixed                    0.8819  0.8810 0.8753 0.8289 0.9416
 encoder/roberta-base                              0.8799  0.8786 0.8714 0.8326 0.9358
 contrastive/microsoft_deberta-v3-base/mixed       0.8405  0.8397 0.8632 0.7803 0.8780
+encoder/microsoft_deberta-v3-base                 0.8392  0.8407 0.8583 0.7759 0.8833
 feature_based                                     0.7236  0.7278 0.8322 0.6526 0.6860
-encoder/microsoft_deberta-v3-base                 0.1749  0.3555 0.5246 0.0000 0.0000
 ==================================================================================
 LLM-verdict: run evaluate_llm_verdict.py separately (needs ANTHROPIC_API_KEY)
