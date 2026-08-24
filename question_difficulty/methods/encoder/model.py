@@ -14,7 +14,7 @@ from transformers import AutoModel
 class EncoderQDE(nn.Module):
     def __init__(self, model_name: str, n_classes: int = 3, dropout: float = 0.1):
         super().__init__()
-        self.encoder = AutoModel.from_pretrained(model_name)
+        self.encoder = AutoModel.from_pretrained(model_name).float()
         hidden = self.encoder.config.hidden_size
         self.drop = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden, n_classes)
