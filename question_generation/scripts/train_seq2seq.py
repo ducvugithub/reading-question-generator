@@ -6,15 +6,15 @@ Reads data/qg/{step}/{split}.jsonl produced by prepare_qg_data.py
 and fine-tunes t5-base using HuggingFace Seq2SeqTrainer.
 
 Steps:
-  step0  — baseline QG: context → question (no conditioning)
-  step2  — difficulty-controlled QG: difficulty + context → question
-  step3  — focus-span QG: focus + context → question
-  step4  — M6 full: difficulty + focus + context → question (QDE-enriched data)
+  baseline             — baseline QG: context → question (no conditioning)
+  diff-control         — difficulty-controlled QG: difficulty + context → question
+  focus-span-control   — focus-span QG: focus + context → question
+  step4                — M6 full: difficulty + focus + context → question (QDE-enriched data)
 
 Usage:
-  python question_generation/scripts/train_seq2seq.py --model-type step0
-  python question_generation/scripts/train_seq2seq.py --model-type step2 --epochs 5
-  python question_generation/scripts/train_seq2seq.py --model-type step0 --limit 200 --epochs 1  # smoke test
+  python question_generation/scripts/train_seq2seq.py --model-type baseline
+  python question_generation/scripts/train_seq2seq.py --model-type diff-control --epochs 5
+  python question_generation/scripts/train_seq2seq.py --model-type baseline --limit 200 --epochs 1  # smoke test
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def compute_metrics_fn(tokenizer):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-type",  required=True,
-                        choices=["step0", "step2", "step3", "step4"])
+                        choices=["baseline", "diff-control", "focus-span-control", "step4"])
     parser.add_argument("--data-dir",    default="data/qg")
     parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")

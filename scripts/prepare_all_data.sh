@@ -23,14 +23,14 @@ for arg in "$@"; do
     esac
 done
 
-export HF_HOME=/scratch/project_2006600/ducvu/hf_cache
-export HF_DATASETS_CACHE=/scratch/project_2006600/ducvu/hf_cache/datasets
-export TRANSFORMERS_CACHE=/scratch/project_2006600/ducvu/hf_cache
+export HF_HOME=/scratch/project_2006601/ducvu/hf_cache
+export HF_DATASETS_CACHE=/scratch/project_2006601/ducvu/hf_cache/datasets
+export TRANSFORMERS_CACHE=/scratch/project_2006601/ducvu/hf_cache
 
 module purge
 module load python-pytorch/2.10
 
-cd /scratch/project_2006600/ducvu/reading-question-generator
+cd /scratch/project_2006601/ducvu/reading-question-generator
 
 echo "=== Downloading HF datasets ==="
 python scripts/download_resources.py
@@ -45,9 +45,9 @@ fi
 
 if [ $QG -eq 1 ]; then
     echo ""
-    echo "=== Preparing QG data (step0 + step2 + step3) ==="
+    echo "=== Preparing QG data (baseline + diff-control + focus-span-control) ==="
     python question_generation/scripts/prepare_qg_data.py \
-        --steps step0 step2 step3 \
+        --steps baseline diff-control focus-span-control \
         --output-dir data/qg
 fi
 
@@ -56,7 +56,7 @@ echo "=== Data sizes ==="
 for f in data/qde/train.jsonl data/qde/val.jsonl data/qde/test.jsonl; do
     [ -f $f ] && echo "  $f: $(wc -l < $f) records"
 done
-for step in step0 step2 step3; do
+for step in baseline diff-control focus-span-control; do
     for split in train val test; do
         f=data/qg/$step/$split.jsonl
         [ -f $f ] && echo "  $f: $(wc -l < $f) records"

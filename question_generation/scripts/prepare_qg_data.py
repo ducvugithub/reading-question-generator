@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-Prepare T5 QG training data for Steps 0, 2, 3.
+Prepare T5 QG training data for baseline, diff-control, and focus-span-control.
 
-  Step 0 (baseline):  context: {passage} → question
+  baseline:           context: {passage} → question
                       Sources: RACE-middle + RACE-high + RACE-C + HotpotQA + MultiRC
                       No conditioning — unconditional QG baseline.
 
-  Step 2 (diff QG):   difficulty: {EASY|MEDIUM|HARD} context: {passage} → question
+  diff-control:       difficulty: {EASY|MEDIUM|HARD} context: {passage} → question
                       Sources: RACE-middle→EASY, RACE-high→MEDIUM, RACE-C→HARD
 
-  Step 3 (span QG):   focus: {evidence_sentences} context: {passage} → question
+  focus-span-control: focus: {evidence_sentences} context: {passage} → question
                       Sources: HotpotQA (type==comparison) + MultiRC (allenai/multirc)
 
-  Step 4 (M6 full):   Not implemented here — requires QDE-enriched data from Step 1.
+  step4:              Not implemented here — requires QDE-enriched data.
                       Run after QDE training; enrich HotpotQA/MultiRC with EASY/MEDIUM/HARD labels.
 
 Passage-level deterministic 80/10/10 split via MD5.
 
 Usage:
-  python question_generation/scripts/prepare_qg_data.py --steps step0
-  python question_generation/scripts/prepare_qg_data.py --steps step2
-  python question_generation/scripts/prepare_qg_data.py --steps step3
-  python question_generation/scripts/prepare_qg_data.py --steps step0 step2 step3
-  python question_generation/scripts/prepare_qg_data.py --steps step0 --limit 500  # smoke test
+  python question_generation/scripts/prepare_qg_data.py --steps baseline
+  python question_generation/scripts/prepare_qg_data.py --steps diff-control
+  python question_generation/scripts/prepare_qg_data.py --steps focus-span-control
+  python question_generation/scripts/prepare_qg_data.py --steps baseline diff-control focus-span-control
+  python question_generation/scripts/prepare_qg_data.py --steps baseline --limit 500  # smoke test
 """
 from __future__ import annotations
 
@@ -44,11 +44,11 @@ def _split_bucket(passage: str, train_r: float, val_r: float) -> str:
 
 
 def _format_input(step: str, passage: str, difficulty: str = "", focus: str = "") -> str:
-    if step == "step0":
+    if step == "baseline":
         return f"generate question: context: {passage}"
-    if step == "step2":
+    if step == "diff-control":
         return f"generate question: difficulty: {difficulty} context: {passage}"
-    if step == "step3":
+    if step == "focus-span-control":
         return f"generate question: focus: {focus} context: {passage}"
     if step == "step4":
         return f"generate question: difficulty: {difficulty} focus: {focus} context: {passage}"
@@ -115,20 +115,20 @@ def _focus_span(rec: dict) -> str:
 
 def _iter_hotpotqa(step: str, limit: int | None) -> Iterator[dict]:
     """hotpotqa/hotpot_qa distractor split.
-    step0: all types, gold passage as context.
-    step3: comparison type only, gold passage + supporting_facts as focus.
+    baseline: all types, gold passage as context.
+    focus-span-control: comparison type only, gold passage + supporting_facts as focus.
     """
     from datasets import load_dataset
     ds = load_dataset("hotpotqa/hotpot_qa", "distractor", split="train")
     count = 0
     for rec in ds:
-        if step == "step3" and rec["type"] != "comparison":
+        if step == "focus-span-control" and rec["type"] != "comparison":
             continue
         passage = _gold_passage(rec)
         if not passage:
             continue
         entry: dict = {"passage": passage, "question": rec["question"], "source": "hotpotqa"}
-        if step == "step3":
+        if step == "focus-span-control":
             span = _focus_span(rec)
             if not span:
                 continue
@@ -146,7 +146,7 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
       paragraph.text, paragraph.questions[].question,
       paragraph.questions[].sentences_used (evidence sentence indices)
 
-    Falls back to aps/super_glue multirc (no evidences) for step0 only.
+    Falls back to aps/super_glue multirc (no evidences) for baseline only.
     """
     from datasets import load_dataset
 
@@ -155,12 +155,12 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
         use_allenai = True
     except Exception:
         print("  [warn] allenai/multirc unavailable — falling back to aps/super_glue multirc "
-              "(no evidence annotations; step3 will be skipped for MultiRC)", flush=True)
+              "(no evidence annotations; focus-span-control will be skipped for MultiRC)", flush=True)
         ds = load_dataset("aps/super_glue", "multirc", split="train")
         use_allenai = False
 
-    if step == "step3" and not use_allenai:
-        print("  [warn] MultiRC step3 skipped: evidence field requires allenai/multirc")
+    if step == "focus-span-control" and not use_allenai:
+        print("  [warn] MultiRC focus-span-control skipped: evidence field requires allenai/multirc")
         return
 
     seen_questions: set[str] = set()
@@ -179,7 +179,7 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
                     continue
                 seen_questions.add(qkey)
                 entry: dict = {"passage": text, "question": q["question"], "source": "multirc"}
-                if step == "step3":
+                if step == "focus-span-control":
                     ev_idxs = q.get("sentences_used", [])
                     if not ev_idxs:
                         continue
@@ -207,24 +207,24 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
 # ── per-step preparation ─────────────────────────────────────────────────────
 
 def _sources_for_step(step: str, limit: int | None) -> list[tuple[str, Iterator[dict]]]:
-    if step == "step0":
+    if step == "baseline":
         return [
             ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
             ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
             ("RACE-C",       _iter_race_c(limit)),
-            ("HotpotQA",     _iter_hotpotqa("step0", limit)),
-            ("MultiRC",      _iter_multirc("step0", limit)),
+            ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
+            ("MultiRC",      _iter_multirc("baseline", limit)),
         ]
-    if step == "step2":
+    if step == "diff-control":
         return [
             ("RACE-middle → EASY",   _iter_race("middle", "EASY",   limit)),
             ("RACE-high   → MEDIUM", _iter_race("high",   "MEDIUM", limit)),
             ("RACE-C      → HARD",   _iter_race_c(limit)),
         ]
-    if step == "step3":
+    if step == "focus-span-control":
         return [
-            ("HotpotQA (comparison)", _iter_hotpotqa("step3", limit)),
-            ("MultiRC",               _iter_multirc("step3", limit)),
+            ("HotpotQA (comparison)", _iter_hotpotqa("focus-span-control", limit)),
+            ("MultiRC",               _iter_multirc("focus-span-control", limit)),
         ]
     raise ValueError(f"Unknown step: {step}")
 
@@ -272,8 +272,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--steps", nargs="+",
-                        choices=["step0", "step2", "step3"],
-                        default=["step0", "step2", "step3"])
+                        choices=["baseline", "diff-control", "focus-span-control"],
+                        default=["baseline", "diff-control", "focus-span-control"])
     parser.add_argument("--output-dir", default="data/qg")
     parser.add_argument("--split", nargs=3, type=float, default=[0.8, 0.1, 0.1],
                         metavar=("TRAIN", "VAL", "TEST"))
