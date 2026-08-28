@@ -45,9 +45,13 @@ fi
 
 if [ $QG -eq 1 ]; then
     echo ""
-    echo "=== Preparing QG data (baseline + diff-control + focus-span-control) ==="
+    echo "=== Step 1: Split raw RACE++/HotpotQA into train/val/test ==="
+    python question_generation/scripts/prepare_qg_test_sets.py
+
+    echo ""
+    echo "=== Step 2: Format QG data per model type (2 comparison pairs + 1 reference) ==="
     python question_generation/scripts/prepare_qg_data.py \
-        --steps baseline diff-control focus-span-control \
+        --steps baseline-race diff-control-race baseline-hotpot focus-control-hotpot baseline-all \
         --output-dir data/qg
 fi
 
@@ -56,7 +60,7 @@ echo "=== Data sizes ==="
 for f in data/qde/train.jsonl data/qde/val.jsonl data/qde/test.jsonl; do
     [ -f $f ] && echo "  $f: $(wc -l < $f) records"
 done
-for step in baseline diff-control focus-span-control; do
+for step in baseline-race diff-control-race baseline-hotpot focus-control-hotpot baseline-all; do
     for split in train val test; do
         f=data/qg/$step/$split.jsonl
         [ -f $f ] && echo "  $f: $(wc -l < $f) records"

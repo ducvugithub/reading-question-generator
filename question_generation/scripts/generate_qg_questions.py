@@ -80,8 +80,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--models", nargs="+", default=["baseline-race", "diff-control-race"],
-                        choices=["baseline-all", "baseline-race", "baseline-hotpot-multirc",
-                                "diff-control-race", "focus-control-hotpot-multirc"],
+                        choices=["baseline-all", "baseline-race", "baseline-hotpot",
+                                "diff-control-race", "focus-control-hotpot"],
                         help="Model types to use for generation")
     parser.add_argument("--num-per-difficulty", type=int, default=1,
                         help="Number of questions to generate per difficulty level")

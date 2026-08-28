@@ -16,15 +16,16 @@ def main():
     print("  race-c (college/Gaokao) ...", flush=True)
     load_dataset("tasksource/race-c", split="train")
 
-    # QG focus-span training data (Steps 3, 4)
+    # QG focus-span training data (HotpotQA comparison-only)
     print("  hotpotqa (distractor) ...", flush=True)
     load_dataset("hotpotqa/hotpot_qa", "distractor", split="train")
     load_dataset("hotpotqa/hotpot_qa", "distractor", split="validation")
 
-    # QG focus-span (Step 3)
-    print("  multirc (super_glue) ...", flush=True)
-    load_dataset("aps/super_glue", "multirc", split="train")
-    load_dataset("aps/super_glue", "multirc", split="validation")
+    # TODO: MultiRC removed - not used in current data prep (HotpotQA comparison-only)
+    # Uncomment if needed for future variants
+    # print("  multirc (super_glue) ...", flush=True)
+    # load_dataset("aps/super_glue", "multirc", split="train")
+    # load_dataset("aps/super_glue", "multirc", split="validation")
 
     print("=== Done ===", flush=True)
 

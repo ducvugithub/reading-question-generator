@@ -1,364 +1,126 @@
 #!/usr/bin/env python3
 """
-Prepare T5 QG training data for multiple model types.
+Step 2: Format raw train/val/test splits (from prepare_qg_test_sets.py) into
+T5 QG input/target pairs for each model type.
 
-Model types (5 total):
-  baseline-all:             <passage> → question
-                            Sources: RACE + HotpotQA + MultiRC (196K)
-                            No conditioning — all data combined.
-
+Model types (4 primary + 1 reference):
   baseline-race:            <passage> → question
-                            Sources: RACE-middle + RACE-high + RACE-C (100K)
-                            RACE-only baseline for fair diff-control comparison.
-
-  baseline-hotpot-multirc:  <passage> → question
-                            Sources: HotpotQA (comparison) + MultiRC (95K)
-                            Open-ended reasoning baseline.
+                            Source: data/qg/raw/race — RACE-only baseline.
 
   diff-control-race:        <EASY|MEDIUM|HARD> <passage> → question
-                            Sources: RACE-middle→EASY, RACE-high→MEDIUM, RACE-C→HARD (100K)
-                            Difficulty-controlled QG on RACE.
+                            Source: data/qg/raw/race — difficulty-controlled QG.
 
-  focus-control-hotpot-multirc: <passage_with_focus_spans> → question
-                                Sources: HotpotQA (comparison) + MultiRC (95K)
-                                Focus-span-controlled QG on reasoning datasets.
+  baseline-hotpot:          <passage> → question
+                            Source: data/qg/raw/hotpotqa — multi-hop baseline.
 
-Passage-level deterministic 80/10/10 split via MD5.
+  focus-control-hotpot:     <passage_with_focus_spans> → question
+                            Source: data/qg/raw/hotpotqa — focus-span-controlled QG.
+
+  baseline-all:             <passage> → question
+                            Source: data/qg/raw/race + data/qg/raw/hotpotqa combined.
+
+Reads pre-split train/val/test from data/qg/raw/{race,hotpotqa}/{split}.jsonl —
+does no splitting itself, so all model types trained on the same source share
+identical test passages.
 
 Usage:
-  python question_generation/scripts/prepare_qg_data.py --steps baseline-all
-  python question_generation/scripts/prepare_qg_data.py --steps baseline-race
-  python question_generation/scripts/prepare_qg_data.py --steps diff-control-race
   python question_generation/scripts/prepare_qg_data.py --steps baseline-race diff-control-race
-  python question_generation/scripts/prepare_qg_data.py --steps baseline-hotpot-multirc focus-control-hotpot-multirc
-  python question_generation/scripts/prepare_qg_data.py --steps baseline-race --limit 500  # test
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-hotpot focus-control-hotpot
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-all
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import sys
 from pathlib import Path
-from typing import Iterator
 
 
-def _split_bucket(passage: str, train_r: float, val_r: float) -> str:
-    h = int(hashlib.md5(passage.encode()).hexdigest(), 16) % 100
-    if h < train_r * 100:
-        return "train"
-    if h < (train_r + val_r) * 100:
-        return "val"
-    return "test"
+def _load_raw(raw_dir: Path, dataset: str, split: str) -> list[dict]:
+    path = raw_dir / dataset / f"{split}.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found — run prepare_qg_test_sets.py first"
+        )
+    return [json.loads(line) for line in path.open(encoding="utf-8") if line.strip()]
 
 
-def _wrap_focus_spans(passage: str, focus_spans: list[str]) -> str:
-    """Wrap focus spans with <FOCUS_SPAN> tags.
-
-    Args:
-        passage: Original passage text
-        focus_spans: List of span texts to wrap
-
-    Returns:
-        Passage with focus spans wrapped
-    """
-    result = passage
-    for span in focus_spans:
-        # Replace first occurrence of span with wrapped version
-        result = result.replace(span, f"<FOCUS_SPAN>{span}</FOCUS_SPAN>", 1)
-    return result
+def _wrap_focus_spans(passage: str, focus: str) -> str:
+    return passage.replace(focus, f"<FOCUS_SPAN>{focus}</FOCUS_SPAN>", 1) if focus else passage
 
 
-def _format_input(model_type: str, passage: str, difficulty: str = "", focus: str = "") -> str:
-    """Format input for T5 QG model.
+def _format_input(model_type: str, rec: dict) -> str:
+    passage = rec["passage"]
 
-    Format: <DIFFICULTY> {passage_with_focus_spans}
-    - baseline: {passage}
-    - diff-control: <EASY|MEDIUM|HARD> {passage}
-    - focus-span-control: <DIFFICULTY> {passage_with_focus_spans}
-    - step4: <DIFFICULTY> {passage_with_focus_spans}
-
-    Focus spans are marked inline: <FOCUS_SPAN>text</FOCUS_SPAN>
-    """
-    if model_type == "baseline":
+    if model_type in ("baseline-all", "baseline-race", "baseline-hotpot"):
         return passage
-    if model_type == "diff-control":
-        return f"<{difficulty}> {passage}"
-    if model_type == "focus-span-control":
-        # Passage should already have focus spans wrapped with <FOCUS_SPAN> tags
-        # Call _wrap_focus_spans() before calling this function
-        return passage
-    if model_type == "step4":
-        # Both difficulty and focus spans
-        # Passage should have focus spans wrapped with <FOCUS_SPAN> tags
-        return f"<{difficulty}> {passage}"
-    raise ValueError(f"Unknown model_type: {model_type}")
 
-
-# ── dataset iterators ────────────────────────────────────────────────────────
-
-def _iter_race(subset: str, difficulty: str, limit: int | None) -> Iterator[dict]:
-    """ehovy/race middle or high — answer field is letter A/B/C/D."""
-    from datasets import load_dataset
-    ds = load_dataset("ehovy/race", subset, split="train")
-    letter_to_idx = {"A": 0, "B": 1, "C": 2, "D": 3}
-    count = 0
-    for rec in ds:
-        idx = letter_to_idx.get(rec["answer"])
-        if idx is None or idx >= len(rec["options"]):
-            continue
-        yield {"passage": rec["article"], "question": rec["question"],
-               "difficulty": difficulty, "source": f"race_{subset}"}
-        count += 1
-        if limit and count >= limit:
-            break
-
-
-def _iter_race_c(limit: int | None) -> Iterator[dict]:
-    """tasksource/race-c — answer field is integer 0–3."""
-    from datasets import load_dataset
-    ds = load_dataset("tasksource/race-c", split="train")
-    count = 0
-    for rec in ds:
-        if rec["label"] is None or rec["label"] >= len(rec["option"]):
-            continue
-        yield {"passage": rec["article"], "question": rec["question"],
-               "difficulty": "HARD", "source": "race_c"}
-        count += 1
-        if limit and count >= limit:
-            break
-
-
-def _gold_passage(rec: dict) -> str:
-    """Concatenate the 2 supporting passages from a HotpotQA record."""
-    gold_titles = set(rec["supporting_facts"]["title"])
-    parts = []
-    for title, sents in zip(rec["context"]["title"], rec["context"]["sentences"]):
-        if title in gold_titles:
-            parts.append(" ".join(sents))
-    return " ".join(parts)
-
-
-def _focus_span(rec: dict) -> str:
-    """Extract supporting_facts sentences as the focus span."""
-    sf_map: dict[str, set] = {}
-    for title, sid in zip(rec["supporting_facts"]["title"], rec["supporting_facts"]["sent_id"]):
-        sf_map.setdefault(title, set()).add(sid)
-    parts = []
-    for title, sents in zip(rec["context"]["title"], rec["context"]["sentences"]):
-        if title in sf_map:
-            for i, s in enumerate(sents):
-                if i in sf_map[title]:
-                    parts.append(s.strip())
-    return " ".join(parts)
-
-
-def _iter_hotpotqa(model_type: str, limit: int | None) -> Iterator[dict]:
-    """hotpotqa/hotpot_qa distractor split.
-    baseline: all types, gold passage as context.
-    focus-span-control: comparison type only, gold passage + supporting_facts as focus.
-    """
-    from datasets import load_dataset
-    ds = load_dataset("hotpotqa/hotpot_qa", "distractor", split="train")
-    count = 0
-    for rec in ds:
-        if model_type == "focus-span-control" and rec["type"] != "comparison":
-            continue
-        passage = _gold_passage(rec)
-        if not passage:
-            continue
-        entry: dict = {"passage": passage, "question": rec["question"], "source": "hotpotqa"}
-        if model_type == "focus-span-control":
-            span = _focus_span(rec)
-            if not span:
-                continue
-            entry["focus"] = span
-        yield entry
-        count += 1
-        if limit and count >= limit:
-            break
-
-
-def _iter_multirc(model_type: str, limit: int | None) -> Iterator[dict]:
-    """allenai/multirc — original dataset with evidence annotations.
-
-    The allenai/multirc dataset has nested structure:
-      paragraph.text, paragraph.questions[].question,
-      paragraph.questions[].sentences_used (evidence sentence indices)
-
-    Falls back to aps/super_glue multirc (no evidences) for baseline only.
-    """
-    from datasets import load_dataset
-
-    try:
-        ds = load_dataset("allenai/multirc", split="train")
-        use_allenai = True
-    except Exception:
-        print("  [warn] allenai/multirc unavailable — falling back to aps/super_glue multirc "
-              "(no evidence annotations; focus-span-control will be skipped for MultiRC)", flush=True)
-        ds = load_dataset("aps/super_glue", "multirc", split="train")
-        use_allenai = False
-
-    if model_type == "focus-span-control" and not use_allenai:
-        print("  [warn] MultiRC focus-span-control skipped: evidence field requires allenai/multirc")
-        return
-
-    seen_questions: set[str] = set()
-    count = 0
-
-    if use_allenai:
-        for item in ds:
-            para = item["paragraph"]
-            text = para["text"]
-            # Split paragraph into sentences for evidence extraction
-            import re
-            sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-            for q in para["questions"]:
-                qkey = f"{text[:80]}||{q['question']}"
-                if qkey in seen_questions:
-                    continue
-                seen_questions.add(qkey)
-                entry: dict = {"passage": text, "question": q["question"], "source": "multirc"}
-                if model_type == "focus-span-control":
-                    ev_idxs = q.get("sentences_used", [])
-                    if not ev_idxs:
-                        continue
-                    focus = " ".join(sentences[i] for i in ev_idxs if i < len(sentences))
-                    if not focus:
-                        continue
-                    entry["focus"] = focus
-                yield entry
-                count += 1
-                if limit and count >= limit:
-                    return
-    else:
-        # SuperGLUE version — one record per answer candidate; deduplicate to question level
-        for rec in ds:
-            qkey = f"{rec['paragraph'][:80]}||{rec['question']}"
-            if qkey in seen_questions:
-                continue
-            seen_questions.add(qkey)
-            yield {"passage": rec["paragraph"], "question": rec["question"], "source": "multirc_sg"}
-            count += 1
-            if limit and count >= limit:
-                return
-
-
-# ── per-step preparation ─────────────────────────────────────────────────────
-
-def _sources_for_step(model_type: str, limit: int | None) -> list[tuple[str, Iterator[dict]]]:
-    """Return data sources for each model type.
-
-    Models:
-      baseline-all:             RACE + HotpotQA + MultiRC (196K)
-      baseline-race:            RACE only (100K)
-      baseline-hotpot-multirc:  HotpotQA + MultiRC only (95K)
-      diff-control-race:        RACE only (100K) with difficulty labels
-      focus-control-hotpot-multirc: HotpotQA + MultiRC with focus spans (95K)
-    """
-    if model_type == "baseline-all":
-        return [
-            ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
-            ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
-            ("RACE-C",       _iter_race_c(limit)),
-            ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
-            ("MultiRC",      _iter_multirc("baseline", limit)),
-        ]
-    if model_type == "baseline-race":
-        return [
-            ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
-            ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
-            ("RACE-C",       _iter_race_c(limit)),
-        ]
-    if model_type == "baseline-hotpot-multirc":
-        return [
-            ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
-            ("MultiRC",      _iter_multirc("baseline", limit)),
-        ]
     if model_type == "diff-control-race":
-        return [
-            ("RACE-middle → EASY",   _iter_race("middle", "EASY",   limit)),
-            ("RACE-high   → MEDIUM", _iter_race("high",   "MEDIUM", limit)),
-            ("RACE-C      → HARD",   _iter_race_c(limit)),
-        ]
-    if model_type == "focus-control-hotpot-multirc":
-        return [
-            ("HotpotQA (comparison)", _iter_hotpotqa("focus-span-control", limit)),
-            ("MultiRC",               _iter_multirc("focus-span-control", limit)),
-        ]
+        return f"<{rec['difficulty']}> {passage}"
+
+    if model_type == "focus-control-hotpot":
+        return _wrap_focus_spans(passage, rec.get("focus", ""))
+
     raise ValueError(f"Unknown model_type: {model_type}")
 
 
-def prepare_step(model_type: str, out_dir: Path, train_r: float, val_r: float, limit: int | None) -> None:
+def _sources_for_step(model_type: str, raw_dir: Path, split: str) -> list[dict]:
+    if model_type in ("baseline-race", "diff-control-race"):
+        return _load_raw(raw_dir, "race", split)
+    if model_type in ("baseline-hotpot", "focus-control-hotpot"):
+        return _load_raw(raw_dir, "hotpotqa", split)
+    if model_type == "baseline-all":
+        return _load_raw(raw_dir, "race", split) + _load_raw(raw_dir, "hotpotqa", split)
+    raise ValueError(f"Unknown model_type: {model_type}")
+
+
+def prepare_step(model_type: str, raw_dir: Path, out_dir: Path) -> None:
     step_dir = out_dir / model_type
     step_dir.mkdir(parents=True, exist_ok=True)
-    splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
 
-    for name, iterator in _sources_for_step(model_type, limit):
-        print(f"  Loading {name}...", flush=True)
-        n = 0
-        for rec in iterator:
-            passage = rec["passage"]
-
-            # Wrap focus spans if present (for focus-span-control and step4)
-            if rec.get("focus_spans"):
-                passage = _wrap_focus_spans(passage, rec["focus_spans"])
-
+    for split in ("train", "val", "test"):
+        records = _sources_for_step(model_type, raw_dir, split)
+        out_records = []
+        for rec in records:
             out = {
-                "input_text":  _format_input(model_type, passage,
-                                             difficulty=rec.get("difficulty", ""),
-                                             focus=rec.get("focus", "")),
+                "input_text": _format_input(model_type, rec),
                 "target_text": rec["question"],
-                "source":      rec.get("source", ""),
-                "model_type":  model_type,
+                "source": rec.get("source", ""),
+                "model_type": model_type,
             }
             if rec.get("difficulty"):
                 out["difficulty"] = rec["difficulty"]
-            bucket = _split_bucket(rec["passage"], train_r, val_r)
-            splits[bucket].append(out)
-            n += 1
-        print(f"    {n} records", flush=True)
+            out_records.append(out)
 
-    for split_name, records in splits.items():
-        if not records:
-            continue
-        path = step_dir / f"{split_name}.jsonl"
+        path = step_dir / f"{split}.jsonl"
         with path.open("w", encoding="utf-8") as f:
-            for r in records:
+            for r in out_records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-    total = sum(len(v) for v in splits.values())
-    print(f"  [{model_type}] train={len(splits['train'])}  val={len(splits['val'])}  "
-          f"test={len(splits['test'])}  total={total}", flush=True)
+    sizes = {s: sum(1 for _ in (step_dir / f"{s}.jsonl").open()) for s in ("train", "val", "test")}
+    print(f"  [{model_type}] train={sizes['train']} val={sizes['val']} test={sizes['test']}", flush=True)
 
-
-# ── main ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--steps", nargs="+",
-                        choices=["baseline", "diff-control", "focus-span-control"],
-                        default=["baseline", "diff-control", "focus-span-control"])
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--steps", nargs="+",
+        choices=["baseline-all", "baseline-race", "baseline-hotpot",
+                 "diff-control-race", "focus-control-hotpot"],
+        default=["baseline-all", "baseline-race", "diff-control-race",
+                 "baseline-hotpot", "focus-control-hotpot"],
+    )
+    parser.add_argument("--raw-dir", default="data/qg/raw")
     parser.add_argument("--output-dir", default="data/qg")
-    parser.add_argument("--split", nargs=3, type=float, default=[0.8, 0.1, 0.1],
-                        metavar=("TRAIN", "VAL", "TEST"))
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Max records per source (smoke tests)")
     args = parser.parse_args()
 
-    if abs(sum(args.split) - 1.0) > 0.01:
-        print("Error: split ratios must sum to 1.0")
-        sys.exit(1)
-
-    train_r, val_r, _ = args.split
+    raw_dir = Path(args.raw_dir)
     out_dir = Path(args.output_dir)
 
     for step in args.steps:
         print(f"\n=== {step.upper()} ===", flush=True)
-        prepare_step(step, out_dir, train_r, val_r, args.limit)
-
-    print("\nDone.", flush=True)
+        prepare_step(step, raw_dir, out_dir)
 
 
 if __name__ == "__main__":
