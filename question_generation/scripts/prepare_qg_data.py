@@ -260,8 +260,8 @@ def _sources_for_step(model_type: str, limit: int | None) -> list[tuple[str, Ite
     raise ValueError(f"Unknown step: {step}")
 
 
-def prepare_step(step: str, out_dir: Path, train_r: float, val_r: float, limit: int | None) -> None:
-    step_dir = out_dir / step
+def prepare_step(model_type: str, out_dir: Path, train_r: float, val_r: float, limit: int | None) -> None:
+    step_dir = out_dir / model_type
     step_dir.mkdir(parents=True, exist_ok=True)
     splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
 
@@ -281,7 +281,7 @@ def prepare_step(step: str, out_dir: Path, train_r: float, val_r: float, limit: 
                                              focus=rec.get("focus", "")),
                 "target_text": rec["question"],
                 "source":      rec.get("source", ""),
-                "step":        step,
+                "model_type":  model_type,
             }
             if rec.get("difficulty"):
                 out["difficulty"] = rec["difficulty"]
@@ -299,7 +299,7 @@ def prepare_step(step: str, out_dir: Path, train_r: float, val_r: float, limit: 
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     total = sum(len(v) for v in splits.values())
-    print(f"  [{step}] train={len(splits['train'])}  val={len(splits['val'])}  "
+    print(f"  [{model_type}] train={len(splits['train'])}  val={len(splits['val'])}  "
           f"test={len(splits['test'])}  total={total}", flush=True)
 
 
