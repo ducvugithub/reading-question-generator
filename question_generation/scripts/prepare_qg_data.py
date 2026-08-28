@@ -43,16 +43,47 @@ def _split_bucket(passage: str, train_r: float, val_r: float) -> str:
     return "test"
 
 
-def _format_input(step: str, passage: str, difficulty: str = "", focus: str = "") -> str:
-    if step == "baseline":
-        return f"generate question: context: {passage}"
-    if step == "diff-control":
-        return f"generate question: difficulty: {difficulty} context: {passage}"
-    if step == "focus-span-control":
-        return f"generate question: focus: {focus} context: {passage}"
-    if step == "step4":
-        return f"generate question: difficulty: {difficulty} focus: {focus} context: {passage}"
-    raise ValueError(f"Unknown step: {step}")
+def _wrap_focus_spans(passage: str, focus_spans: list[str]) -> str:
+    """Wrap focus spans with <FOCUS_SPAN> tags.
+
+    Args:
+        passage: Original passage text
+        focus_spans: List of span texts to wrap
+
+    Returns:
+        Passage with focus spans wrapped
+    """
+    result = passage
+    for span in focus_spans:
+        # Replace first occurrence of span with wrapped version
+        result = result.replace(span, f"<FOCUS_SPAN>{span}</FOCUS_SPAN>", 1)
+    return result
+
+
+def _format_input(model_type: str, passage: str, difficulty: str = "", focus: str = "") -> str:
+    """Format input for T5 QG model.
+
+    Format: <DIFFICULTY> {passage_with_focus_spans}
+    - baseline: {passage}
+    - diff-control: <EASY|MEDIUM|HARD> {passage}
+    - focus-span-control: <DIFFICULTY> {passage_with_focus_spans}
+    - step4: <DIFFICULTY> {passage_with_focus_spans}
+
+    Focus spans are marked inline: <FOCUS_SPAN>text</FOCUS_SPAN>
+    """
+    if model_type == "baseline":
+        return passage
+    if model_type == "diff-control":
+        return f"<{difficulty}> {passage}"
+    if model_type == "focus-span-control":
+        # Passage should already have focus spans wrapped with <FOCUS_SPAN> tags
+        # Call _wrap_focus_spans() before calling this function
+        return passage
+    if model_type == "step4":
+        # Both difficulty and focus spans
+        # Passage should have focus spans wrapped with <FOCUS_SPAN> tags
+        return f"<{difficulty}> {passage}"
+    raise ValueError(f"Unknown model_type: {model_type}")
 
 
 # ── dataset iterators ────────────────────────────────────────────────────────
@@ -113,7 +144,7 @@ def _focus_span(rec: dict) -> str:
     return " ".join(parts)
 
 
-def _iter_hotpotqa(step: str, limit: int | None) -> Iterator[dict]:
+def _iter_hotpotqa(model_type: str, limit: int | None) -> Iterator[dict]:
     """hotpotqa/hotpot_qa distractor split.
     baseline: all types, gold passage as context.
     focus-span-control: comparison type only, gold passage + supporting_facts as focus.
@@ -122,13 +153,13 @@ def _iter_hotpotqa(step: str, limit: int | None) -> Iterator[dict]:
     ds = load_dataset("hotpotqa/hotpot_qa", "distractor", split="train")
     count = 0
     for rec in ds:
-        if step == "focus-span-control" and rec["type"] != "comparison":
+        if model_type == "focus-span-control" and rec["type"] != "comparison":
             continue
         passage = _gold_passage(rec)
         if not passage:
             continue
         entry: dict = {"passage": passage, "question": rec["question"], "source": "hotpotqa"}
-        if step == "focus-span-control":
+        if model_type == "focus-span-control":
             span = _focus_span(rec)
             if not span:
                 continue
@@ -139,7 +170,7 @@ def _iter_hotpotqa(step: str, limit: int | None) -> Iterator[dict]:
             break
 
 
-def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
+def _iter_multirc(model_type: str, limit: int | None) -> Iterator[dict]:
     """allenai/multirc — original dataset with evidence annotations.
 
     The allenai/multirc dataset has nested structure:
@@ -159,7 +190,7 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
         ds = load_dataset("aps/super_glue", "multirc", split="train")
         use_allenai = False
 
-    if step == "focus-span-control" and not use_allenai:
+    if model_type == "focus-span-control" and not use_allenai:
         print("  [warn] MultiRC focus-span-control skipped: evidence field requires allenai/multirc")
         return
 
@@ -179,7 +210,7 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
                     continue
                 seen_questions.add(qkey)
                 entry: dict = {"passage": text, "question": q["question"], "source": "multirc"}
-                if step == "focus-span-control":
+                if model_type == "focus-span-control":
                     ev_idxs = q.get("sentences_used", [])
                     if not ev_idxs:
                         continue
@@ -206,8 +237,8 @@ def _iter_multirc(step: str, limit: int | None) -> Iterator[dict]:
 
 # ── per-step preparation ─────────────────────────────────────────────────────
 
-def _sources_for_step(step: str, limit: int | None) -> list[tuple[str, Iterator[dict]]]:
-    if step == "baseline":
+def _sources_for_step(model_type: str, limit: int | None) -> list[tuple[str, Iterator[dict]]]:
+    if model_type == "baseline":
         return [
             ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
             ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
@@ -215,13 +246,13 @@ def _sources_for_step(step: str, limit: int | None) -> list[tuple[str, Iterator[
             ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
             ("MultiRC",      _iter_multirc("baseline", limit)),
         ]
-    if step == "diff-control":
+    if model_type == "diff-control":
         return [
             ("RACE-middle → EASY",   _iter_race("middle", "EASY",   limit)),
             ("RACE-high   → MEDIUM", _iter_race("high",   "MEDIUM", limit)),
             ("RACE-C      → HARD",   _iter_race_c(limit)),
         ]
-    if step == "focus-span-control":
+    if model_type == "focus-span-control":
         return [
             ("HotpotQA (comparison)", _iter_hotpotqa("focus-span-control", limit)),
             ("MultiRC",               _iter_multirc("focus-span-control", limit)),
@@ -234,12 +265,18 @@ def prepare_step(step: str, out_dir: Path, train_r: float, val_r: float, limit: 
     step_dir.mkdir(parents=True, exist_ok=True)
     splits: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
 
-    for name, iterator in _sources_for_step(step, limit):
+    for name, iterator in _sources_for_step(model_type, limit):
         print(f"  Loading {name}...", flush=True)
         n = 0
         for rec in iterator:
+            passage = rec["passage"]
+
+            # Wrap focus spans if present (for focus-span-control and step4)
+            if rec.get("focus_spans"):
+                passage = _wrap_focus_spans(passage, rec["focus_spans"])
+
             out = {
-                "input_text":  _format_input(step, rec["passage"],
+                "input_text":  _format_input(model_type, passage,
                                              difficulty=rec.get("difficulty", ""),
                                              focus=rec.get("focus", "")),
                 "target_text": rec["question"],
