@@ -1,28 +1,37 @@
 #!/usr/bin/env python3
 """
-Prepare T5 QG training data for baseline, diff-control, and focus-span-control.
+Prepare T5 QG training data for multiple model types.
 
-  baseline:           context: {passage} → question
-                      Sources: RACE-middle + RACE-high + RACE-C + HotpotQA + MultiRC
-                      No conditioning — unconditional QG baseline.
+Model types (5 total):
+  baseline-all:             <passage> → question
+                            Sources: RACE + HotpotQA + MultiRC (196K)
+                            No conditioning — all data combined.
 
-  diff-control:       difficulty: {EASY|MEDIUM|HARD} context: {passage} → question
-                      Sources: RACE-middle→EASY, RACE-high→MEDIUM, RACE-C→HARD
+  baseline-race:            <passage> → question
+                            Sources: RACE-middle + RACE-high + RACE-C (100K)
+                            RACE-only baseline for fair diff-control comparison.
 
-  focus-span-control: focus: {evidence_sentences} context: {passage} → question
-                      Sources: HotpotQA (type==comparison) + MultiRC (allenai/multirc)
+  baseline-hotpot-multirc:  <passage> → question
+                            Sources: HotpotQA (comparison) + MultiRC (95K)
+                            Open-ended reasoning baseline.
 
-  step4:              Not implemented here — requires QDE-enriched data.
-                      Run after QDE training; enrich HotpotQA/MultiRC with EASY/MEDIUM/HARD labels.
+  diff-control-race:        <EASY|MEDIUM|HARD> <passage> → question
+                            Sources: RACE-middle→EASY, RACE-high→MEDIUM, RACE-C→HARD (100K)
+                            Difficulty-controlled QG on RACE.
+
+  focus-control-hotpot-multirc: <passage_with_focus_spans> → question
+                                Sources: HotpotQA (comparison) + MultiRC (95K)
+                                Focus-span-controlled QG on reasoning datasets.
 
 Passage-level deterministic 80/10/10 split via MD5.
 
 Usage:
-  python question_generation/scripts/prepare_qg_data.py --steps baseline
-  python question_generation/scripts/prepare_qg_data.py --steps diff-control
-  python question_generation/scripts/prepare_qg_data.py --steps focus-span-control
-  python question_generation/scripts/prepare_qg_data.py --steps baseline diff-control focus-span-control
-  python question_generation/scripts/prepare_qg_data.py --steps baseline --limit 500  # smoke test
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-all
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-race
+  python question_generation/scripts/prepare_qg_data.py --steps diff-control-race
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-race diff-control-race
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-hotpot-multirc focus-control-hotpot-multirc
+  python question_generation/scripts/prepare_qg_data.py --steps baseline-race --limit 500  # test
 """
 from __future__ import annotations
 
@@ -238,7 +247,16 @@ def _iter_multirc(model_type: str, limit: int | None) -> Iterator[dict]:
 # ── per-step preparation ─────────────────────────────────────────────────────
 
 def _sources_for_step(model_type: str, limit: int | None) -> list[tuple[str, Iterator[dict]]]:
-    if model_type == "baseline":
+    """Return data sources for each model type.
+
+    Models:
+      baseline-all:             RACE + HotpotQA + MultiRC (196K)
+      baseline-race:            RACE only (100K)
+      baseline-hotpot-multirc:  HotpotQA + MultiRC only (95K)
+      diff-control-race:        RACE only (100K) with difficulty labels
+      focus-control-hotpot-multirc: HotpotQA + MultiRC with focus spans (95K)
+    """
+    if model_type == "baseline-all":
         return [
             ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
             ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
@@ -246,18 +264,29 @@ def _sources_for_step(model_type: str, limit: int | None) -> list[tuple[str, Ite
             ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
             ("MultiRC",      _iter_multirc("baseline", limit)),
         ]
-    if model_type == "diff-control":
+    if model_type == "baseline-race":
+        return [
+            ("RACE-middle",  _iter_race("middle", "EASY",   limit)),
+            ("RACE-high",    _iter_race("high",   "MEDIUM", limit)),
+            ("RACE-C",       _iter_race_c(limit)),
+        ]
+    if model_type == "baseline-hotpot-multirc":
+        return [
+            ("HotpotQA",     _iter_hotpotqa("baseline", limit)),
+            ("MultiRC",      _iter_multirc("baseline", limit)),
+        ]
+    if model_type == "diff-control-race":
         return [
             ("RACE-middle → EASY",   _iter_race("middle", "EASY",   limit)),
             ("RACE-high   → MEDIUM", _iter_race("high",   "MEDIUM", limit)),
             ("RACE-C      → HARD",   _iter_race_c(limit)),
         ]
-    if model_type == "focus-span-control":
+    if model_type == "focus-control-hotpot-multirc":
         return [
             ("HotpotQA (comparison)", _iter_hotpotqa("focus-span-control", limit)),
             ("MultiRC",               _iter_multirc("focus-span-control", limit)),
         ]
-    raise ValueError(f"Unknown step: {step}")
+    raise ValueError(f"Unknown model_type: {model_type}")
 
 
 def prepare_step(model_type: str, out_dir: Path, train_r: float, val_r: float, limit: int | None) -> None:
