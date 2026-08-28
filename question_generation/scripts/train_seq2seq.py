@@ -176,8 +176,13 @@ def main() -> None:
         callbacks=callbacks,
     )
 
+    from transformers.trainer_utils import get_last_checkpoint
+    last_checkpoint = get_last_checkpoint(str(out_dir)) if out_dir.exists() else None
+    if last_checkpoint:
+        print(f"Resuming from checkpoint: {last_checkpoint}", flush=True)
+
     print(f"Training {args.model_type.upper()} → {out_dir}", flush=True)
-    trainer.train()
+    trainer.train(resume_from_checkpoint=last_checkpoint)
     trainer.save_model(str(out_dir / "final"))
     tokenizer.save_pretrained(str(out_dir / "final"))
     print(f"Saved to {out_dir}/final", flush=True)
