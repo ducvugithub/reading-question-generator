@@ -97,7 +97,8 @@ def main() -> None:
     parser.add_argument("--max-input",   type=int,   default=512)
     parser.add_argument("--max-target",  type=int,   default=64)
     parser.add_argument("--save-steps",  type=int,   default=500, help="Eval/log/save every N steps (use small value for smoke tests)")
-    parser.add_argument("--fp16",        action="store_true", help="Enable mixed precision (GPU only)")
+    parser.add_argument("--fp16",        action="store_true", help="Enable fp16 mixed precision (GPU only; avoid with flan-t5 — prone to NaN, use --bf16 instead)")
+    parser.add_argument("--bf16",        action="store_true", help="Enable bf16 mixed precision (GPU only; recommended for flan-t5 base models)")
     parser.add_argument("--limit",            type=int, default=None, help="Use only first N examples (for testing)")
     parser.add_argument("--early-stopping",   type=int, default=3,    help="Stop after N evals with no improvement (0 to disable)")
     args = parser.parse_args()
@@ -152,6 +153,7 @@ def main() -> None:
         predict_with_generate=True,
         generation_max_length=args.max_target,
         fp16=args.fp16,
+        bf16=args.bf16,
         logging_steps=args.save_steps,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",

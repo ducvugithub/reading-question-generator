@@ -91,7 +91,14 @@ and questions, differing only in input conditioning.
 - Learning rate: 5e-4
 - Warmup steps: 200
 - Weight decay: 0.01
-- Mixed precision: fp16 enabled
+- Mixed precision: **bf16** enabled (not fp16 — see note below)
+
+**fp16 vs bf16:** the flan-t5-base/flan-t5-large runs were initially launched with
+`--fp16` and silently produced garbage (`loss: 0` from gradient-scaler overflow,
+`eval_loss: nan`) — a known incompatibility, since FLAN-T5 was pretrained in
+bfloat16 and has a narrower safe range under float16's limited dynamic range.
+Switched to `--bf16` (GH200 supports it natively) for all base models going
+forward, including plain `t5-base`.
 
 ## Evaluation / checkpointing
 
