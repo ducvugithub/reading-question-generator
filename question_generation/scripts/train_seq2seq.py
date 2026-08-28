@@ -132,7 +132,8 @@ def main() -> None:
 
     train_ds, eval_ds = build_hf_dataset(train_records, eval_records, tokenizer, args.max_input, args.max_target)
 
-    out_dir = Path(args.output_dir) / args.model_type
+    base_model_slug = args.base_model.split("/")[-1]
+    out_dir = Path(args.output_dir) / base_model_slug / args.model_type
     out_dir.mkdir(parents=True, exist_ok=True)
 
     training_args = Seq2SeqTrainingArguments(
