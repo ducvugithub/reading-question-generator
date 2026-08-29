@@ -26,6 +26,8 @@ from tqdm import tqdm
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
+_DIFFICULTY_LEVELS = ["easy", "medium", "hard"]
+
 
 _DIFFICULTIES = ["EASY", "MEDIUM", "HARD"]
 
@@ -36,11 +38,15 @@ def _format_input(model_type: str, passage: str, difficulty: str = "") -> str:
     - baseline-race: {passage} (difficulty ignored — control group, output
       should not change across forced tokens since the model never sees them)
     - diff-control-race: <EASY|MEDIUM|HARD> {passage}
+    - adapter-control-race: {passage} (no text token — difficulty is routed
+      via the active adapter instead, see generate_questions())
     """
     if model_type == "baseline-race":
         return passage
     elif model_type == "diff-control-race":
         return f"<{difficulty}> {passage}"
+    elif model_type == "adapter-control-race":
+        return passage
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -54,21 +60,47 @@ def generate_questions(
     num_beams: int = 4,
     max_length: int = 64,
     device: str = "cpu",
+    do_sample: bool = False,
+    num_samples: int = 1,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
 ) -> list[str]:
-    """Generate num_beams unique questions for a passage at target difficulty."""
+    """Generate questions for a passage at target difficulty.
+
+    Beam search (do_sample=False) always returns the single most probable
+    sequence — if that sequence is the same regardless of the difficulty
+    token, beam search can't tell you whether the token shifted the
+    underlying distribution at all, only whether it shifted the single top
+    answer. Sampling (do_sample=True, num_samples>1) draws from the model's
+    actual distribution so a shift in probability mass shows up as a shift in
+    the *spread* of outputs, even when the single most-likely answer doesn't
+    change.
+    """
     input_text = _format_input(model_type, passage, difficulty)
+    if model_type == "adapter-control-race":
+        model.set_active_adapters(difficulty.lower())
 
     input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
 
     with torch.no_grad():
-        outputs = model.generate(
-            input_ids,
-            max_length=max_length,
-            num_beams=num_beams,
-            num_return_sequences=num_beams,
-            temperature=1.0,
-            do_sample=False,
-        )
+        if do_sample:
+            outputs = model.generate(
+                input_ids,
+                max_length=max_length,
+                do_sample=True,
+                num_return_sequences=num_samples,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        else:
+            outputs = model.generate(
+                input_ids,
+                max_length=max_length,
+                num_beams=num_beams,
+                num_return_sequences=num_beams,
+                temperature=1.0,
+                do_sample=False,
+            )
 
     questions = tokenizer.batch_decode(outputs, skip_special_tokens=True)
     return questions
@@ -80,8 +112,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--models", nargs="+", default=["baseline-race", "diff-control-race"],
-                        choices=["baseline-race", "diff-control-race"],
-                        help="Model types to use for generation (difficulty-conditioned pair only — "
+                        choices=["baseline-race", "diff-control-race", "adapter-control-race"],
+                        help="Model types to use for generation (difficulty-conditioned models only — "
                              "focus-control-hotpot uses a different conditioning mechanism, not "
                              "difficulty tokens, so it doesn't fit this script's forced-token loop)")
     parser.add_argument("--base-model", default="flan-t5-base",
@@ -96,7 +128,17 @@ def main() -> None:
     parser.add_argument("--output", default="question_generation/results/qg_generated.jsonl",
                         help="Output JSONL file with generated questions")
     parser.add_argument("--num-beams", type=int, default=4,
-                        help="Number of beams for beam search")
+                        help="Number of beams for beam search (ignored if --do-sample)")
+    parser.add_argument("--do-sample", action="store_true",
+                        help="Use sampling instead of beam search — reveals whether the "
+                             "difficulty token shifts the model's output *distribution*, not "
+                             "just its single most-likely answer (see generate_questions() docstring)")
+    parser.add_argument("--num-samples", type=int, default=1,
+                        help="Number of sampled sequences per (passage, difficulty) when --do-sample")
+    parser.add_argument("--temperature", type=float, default=1.0,
+                        help="Sampling temperature (higher = more variety), only used with --do-sample")
+    parser.add_argument("--top-p", type=float, default=1.0,
+                        help="Nucleus sampling top-p, only used with --do-sample")
     parser.add_argument("--max-length", type=int, default=64,
                         help="Maximum length of generated questions")
     parser.add_argument("--limit", type=int, default=None,
@@ -131,7 +173,16 @@ def main() -> None:
 
         print(f"  Loading {model_type} from {model_path}...", flush=True)
         tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-        model = AutoModelForSeq2SeqLM.from_pretrained(str(model_path)).to(device)
+        if model_type == "adapter-control-race":
+            import adapters
+
+            model = AutoModelForSeq2SeqLM.from_pretrained(str(model_path))
+            adapters.init(model)
+            for level in _DIFFICULTY_LEVELS:
+                model.load_adapter(str(model_path / level))
+            model = model.to(device)
+        else:
+            model = AutoModelForSeq2SeqLM.from_pretrained(str(model_path)).to(device)
         model.eval()
         models_dict[model_type] = (model, tokenizer)
 
@@ -168,10 +219,15 @@ def main() -> None:
                             num_beams=args.num_beams,
                             max_length=args.max_length,
                             device=device,
+                            do_sample=args.do_sample,
+                            num_samples=args.num_samples,
+                            temperature=args.temperature,
+                            top_p=args.top_p,
                         )
 
-                        # Take top num_per_difficulty questions
-                        for i, question in enumerate(questions[:args.num_per_difficulty]):
+                        # Take top num_per_difficulty questions (or all sampled ones)
+                        n_keep = args.num_samples if args.do_sample else args.num_per_difficulty
+                        for i, question in enumerate(questions[:n_keep]):
                             output_rec = {
                                 "passage": passage,
                                 "original_question": original_question,
