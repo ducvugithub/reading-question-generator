@@ -1,5 +1,31 @@
 # QG Training Details
 
+## ⚠️ Known limitation: difficulty token is confounded with passage style
+
+Every RACE passage belongs to exactly one difficulty subset (RACE-middle→EASY,
+RACE-high→MEDIUM, RACE-C→HARD are disjoint sources), so **no passage is ever
+seen with more than one difficulty token during training** — despite each
+passage having ~3.65 questions on average (see "Passage-level split" below),
+all of them share the same single difficulty label.
+
+This means low training loss on `diff-control-race` does **not** by itself
+prove the `<EASY|MEDIUM|HARD>` token is steering generation. It's equally
+consistent with the model picking up on passage-level style/vocabulary
+differences between the three RACE subsets and ignoring the token entirely —
+the token could be fully redundant with what the passage itself already
+implies. This is a structural property of RACE's design, not something fixable
+in our data prep.
+
+**Mitigation — test this explicitly, don't assume it from training metrics:**
+force all three difficulty tokens (`<EASY>`, `<MEDIUM>`, `<HARD>`) onto the
+*same* test passage and check whether the generated question actually changes.
+If it doesn't change regardless of the forced token, the model learned to
+ignore the token. `question_generation/scripts/generate_qg_questions.py` does
+exactly this (loops all 3 difficulties per passage, plus `baseline-race` as a
+control group that should show ~no variation since it never sees the token at
+all). Cross-check with QDE difficulty scoring on the generated questions once
+that's run.
+
 ## Base model
 
 T5 family, run across 3 base models for the 2 comparison pairs (4 model types,
@@ -83,6 +109,35 @@ focus-control-hotpot:
 `baseline-race`/`diff-control-race` and `baseline-hotpot`/`focus-control-hotpot`
 are fair-comparison pairs — each pair shares identical train/val/test passages
 and questions, differing only in input conditioning.
+
+### Passage-level split (no train/test leakage)
+
+The train/val/test split is keyed on the **passage** (MD5 hash), not the
+question — `_split_bucket(passage)` in `prepare_qg_test_sets.py`. Since RACE
+has multiple questions per passage (avg 3.64, mode 3-4), splitting by row
+instead of by passage would leak the same passage across splits; hashing by
+passage guarantees every question for a given passage lands in the same split.
+Verified: zero passage overlap between train/val/test for both datasets.
+
+| Dataset | Split | Questions | Unique passages |
+|---|---|---|---|
+| RACE | train | 86,898 | 23,894 |
+| RACE | val | 10,079 | 2,773 |
+| RACE | test | 3,591 | 900 |
+| RACE | **total** | **100,568** | **27,567** |
+| HotpotQA (comparison) | train | 14,016 | 13,952 |
+| HotpotQA (comparison) | val | 1,684 | 1,682 |
+| HotpotQA (comparison) | test | 1,756 | 1,746 |
+| HotpotQA (comparison) | **total** | **17,456** | **17,380** |
+
+RACE averages ~3.65 questions/passage (23,894 unique passages → 86,898 train
+questions); HotpotQA is close to 1:1 (13,952 passages → 14,016 train questions)
+since each HotpotQA gold passage is a specific 2-document pairing built for one
+question.
+
+**Known confound:** see "⚠️ Known limitation" at the top of this doc — each
+RACE passage belongs to exactly one difficulty subset, so no passage is ever
+seen with more than one difficulty token during training.
 
 ## Optimization
 

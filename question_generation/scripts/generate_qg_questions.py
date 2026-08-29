@@ -33,13 +33,13 @@ _DIFFICULTIES = ["EASY", "MEDIUM", "HARD"]
 def _format_input(model_type: str, passage: str, difficulty: str = "") -> str:
     """Format input text based on model type.
 
-    Format: <DIFFICULTY> {passage}
-    - baseline: {passage}
-    - diff-control: <EASY|MEDIUM|HARD> {passage}
+    - baseline-race: {passage} (difficulty ignored — control group, output
+      should not change across forced tokens since the model never sees them)
+    - diff-control-race: <EASY|MEDIUM|HARD> {passage}
     """
-    if model_type == "baseline":
+    if model_type == "baseline-race":
         return passage
-    elif model_type == "diff-control":
+    elif model_type == "diff-control-race":
         return f"<{difficulty}> {passage}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -80,12 +80,16 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--models", nargs="+", default=["baseline-race", "diff-control-race"],
-                        choices=["baseline-all", "baseline-race", "baseline-hotpot",
-                                "diff-control-race", "focus-control-hotpot"],
-                        help="Model types to use for generation")
+                        choices=["baseline-race", "diff-control-race"],
+                        help="Model types to use for generation (difficulty-conditioned pair only — "
+                             "focus-control-hotpot uses a different conditioning mechanism, not "
+                             "difficulty tokens, so it doesn't fit this script's forced-token loop)")
+    parser.add_argument("--base-model", default="flan-t5-base",
+                        help="Base model slug to load checkpoints from, e.g. t5-base, "
+                             "flan-t5-base, flan-t5-large (matches the folder under --model-dir)")
     parser.add_argument("--num-per-difficulty", type=int, default=1,
                         help="Number of questions to generate per difficulty level")
-    parser.add_argument("--model-dir", default="question_generation/models",
+    parser.add_argument("--model-dir", default="question_generation/models/qg",
                         help="Directory containing trained models")
     parser.add_argument("--data-dir", default="data/qg",
                         help="Directory containing prepared QG data")
@@ -103,8 +107,9 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # Load test set (use baseline as reference for passages)
-    test_path = Path(args.data_dir) / "baseline" / "test.jsonl"
+    # Load test set (baseline-race and diff-control-race share identical
+    # passages/questions — either works as the passage source)
+    test_path = Path(args.data_dir) / "baseline-race" / "test.jsonl"
     if not test_path.exists():
         print(f"Error: {test_path} not found — run prepare_qg_data.py first", file=sys.stderr)
         sys.exit(1)
@@ -119,12 +124,12 @@ def main() -> None:
     print(f"\nLoading models: {args.models}")
     models_dict = {}
     for model_type in args.models:
-        model_path = Path(args.model_dir) / model_type
-        if not (model_path / "pytorch_model.bin").exists():
+        model_path = Path(args.model_dir) / args.base_model / model_type / "final"
+        if not model_path.exists():
             print(f"Warning: Model not found at {model_path}, skipping", file=sys.stderr)
             continue
 
-        print(f"  Loading {model_type}...", flush=True)
+        print(f"  Loading {model_type} from {model_path}...", flush=True)
         tokenizer = AutoTokenizer.from_pretrained(str(model_path))
         model = AutoModelForSeq2SeqLM.from_pretrained(str(model_path)).to(device)
         model.eval()
@@ -141,8 +146,11 @@ def main() -> None:
 
     with output_path.open("w", encoding="utf-8") as fout:
         for rec in tqdm(test_records, desc="Generating"):
-            passage = rec.get("passage", "")
+            # baseline-race/test.jsonl has no "passage" key — its input_text
+            # IS the raw passage unmodified (baseline adds no token/prefix)
+            passage = rec.get("input_text", "")
             original_question = rec.get("target_text", "")
+            true_difficulty = rec.get("difficulty", "")
 
             if not passage:
                 continue
@@ -167,6 +175,7 @@ def main() -> None:
                             output_rec = {
                                 "passage": passage,
                                 "original_question": original_question,
+                                "true_difficulty": true_difficulty,
                                 "model": model_type,
                                 "target_difficulty": difficulty,
                                 "generated_question": question,
