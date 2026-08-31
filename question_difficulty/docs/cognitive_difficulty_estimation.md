@@ -1,6 +1,6 @@
 # Question Difficulty Estimator (QDE)
 
-Classifies reading comprehension questions into `EASY / MEDIUM / HARD` using curriculum-grounded labels derived from dataset benchmark performance (SQuAD → EASY, RACE-middle → MEDIUM, RACE-high → HARD).
+Classifies reading comprehension questions into `EASY / MEDIUM / HARD` using curriculum-grounded labels derived from which RACE exam subset a passage came from (RACE-middle → EASY, RACE-high → MEDIUM, RACE-C → HARD).
 
 The QDE is used to:
 1. Evaluate QG models: does the generated question match the requested difficulty?
@@ -96,6 +96,160 @@ encoder (frozen backbone) → dropout → 2-layer projection head → L2-normali
 
 Script: `question_difficulty/scripts/train_contrastive.py`
 Slurm: `question_difficulty/slurms/train_qde_contrastive.job`
+
+---
+
+## ⚠️ Known limitation: all three methods share the same passage-confound
+
+Methods 1-3 all train against the same RACE-subset-inherited label. Since a
+passage belongs to exactly one subset, every one of that passage's ~3.65 real
+questions shares the same label — the classifier has no forcing pressure to
+distinguish genuine per-question difficulty from passage-level style/vocabulary
+differences between RACE-middle/high/C. A model that just learns "this reads
+like a RACE-C passage" can hit good macro F1 without ever looking at what
+makes an individual *question* harder. This is the same confound documented
+in `question_generation/docs/training_details.md`'s "Known limitation"
+section, discovered while investigating why `diff-control-race`'s difficulty
+token wasn't producing measurable steering — see Method 4 below for the fix
+under investigation.
+
+---
+
+## Method 4: Per-Question Signal Extraction (addresses the passage-confound)
+
+**Goal:** unlike Methods 1-3, extract a difficulty signal from properties of
+the *individual question* (and its relationship to the passage/answer) that
+does not just re-derive which RACE subset a passage came from. If this works,
+a single passage's several real questions could get *different* difficulty
+scores — real, non-synthetic, same-passage contrastive signal, useful both as
+a better QDE and as new training labels for `diff-control-race`.
+
+**Ruled out approaches:**
+- Synthetic LLM-generated questions — quality concerns (a Haiku-generated
+  MEDIUM question read harder than its paired HARD question; Sonnet was
+  better but still needs prompt iteration and is an ongoing quality/trust
+  risk for training data).
+- LLM-as-annotator (rating existing real questions) — wanted something more
+  systematic than an LLM's subjective judgment call.
+- Full IRT via simulated QA-model "students" — 2PL IRT needs to jointly
+  estimate item difficulty and respondent ability, which requires dozens-to-
+  hundreds of respondents to be statistically reliable. With only ~3-4 QA
+  models as "students," the fit would be underdetermined noise.
+- Distractor plausibility (similarity between correct answer and wrong
+  options) — not worth pursuing per project call.
+
+**Signal sources (all systematic, no LLM judgment, no generation):**
+
+1. **Attention dispersion** — feed `(question, passage)` into a SQuAD-finetuned
+   QA model (`deepset/roberta-base-squad2`), extract the question→passage
+   attention sub-block, summarize how concentrated (one sentence, simple) vs.
+   spread out (many sentences, harder) it is.
+2. **QA-model pass-rate** — run the 3 properly SQuAD-finetuned models from
+   the QA battery (see `question_answering/docs/qa_model_battery.md` — excludes
+   `microsoft/deberta-v3-base`, which isn't actually SQuAD-finetuned) against
+   the gold answer. Fraction of models correct = rough difficulty indicator.
+3. **Answer extractiveness** — plain text overlap between the gold answer and
+   the passage (no model). Verbatim/near-verbatim match → easy (direct
+   lookup); not stated directly anywhere → harder (requires synthesis).
+4. **Question-answer similarity** — plain text/lexical similarity between the
+   question and the gold answer (no model). Direct restatement → easy;
+   indirect relation → harder.
+
+Requires recovering `options`/`answer` from the raw HF RACE dataset into
+`prepare_qg_test_sets.py`'s output — currently dropped since QG training
+doesn't need them. This is a separate side-channel for difficulty signal
+extraction, not a change to QG training data itself.
+
+**Interface design** — one independently pluggable, testable class per
+signal, combined by a simple aggregator:
+
+```python
+from abc import ABC, abstractmethod
+
+
+class DifficultySignal(ABC):
+    """One systematic, model-behavior-or-text-based signal contributing to
+    per-question difficulty. Implementations should not depend on any other
+    signal, and should not use the RACE subset label at all."""
+
+    name: str
+
+    @abstractmethod
+    def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        """Return one or more named scalar features for this triple."""
+        ...
+
+
+class AttentionDispersionSignal(DifficultySignal):
+    name = "attention_dispersion"
+
+    def __init__(self, qa_model_name: str = "deepset/roberta-base-squad2"):
+        ...
+
+    def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        ...
+
+
+class QAPassRateSignal(DifficultySignal):
+    name = "qa_pass_rate"
+
+    def __init__(self, qa_model_names: list[str] | None = None):
+        ...
+
+    def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        ...
+
+
+class AnswerExtractivenessSignal(DifficultySignal):
+    name = "answer_extractiveness"
+
+    def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        ...
+
+
+class QuestionAnswerSimilaritySignal(DifficultySignal):
+    name = "question_answer_similarity"
+
+    def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        ...
+
+
+class DifficultySignalExtractor:
+    """Runs all registered signals over one (passage, question, answer) triple
+    and returns their combined feature dict."""
+
+    def __init__(self, signals: list[DifficultySignal]):
+        self.signals = signals
+
+    def extract(self, passage: str, question: str, answer: str) -> dict[str, float]:
+        features: dict[str, float] = {}
+        for signal in self.signals:
+            features.update(signal.compute(passage, question, answer))
+        return features
+```
+
+Implementation would extend `question_difficulty/methods/feature_based/features.py`
+(new signal functions alongside the existing question-only + interaction
+features), with a script under `question_difficulty/scripts/` to run them at
+scale over RACE. It imports the QA model list from
+`question_answering/scripts/run_qa_models.py` rather than duplicating it, so
+there's one source of truth for which QA models are "official" in this
+project.
+
+**Next step — validate before building anything further.** Compute all 4
+signals on a sample of real RACE questions and check:
+
+1. Does each signal actually vary meaningfully across questions (not flat/noise)?
+2. Does it correlate at all with the existing RACE subset label (sanity check)?
+3. **Critical test**: does it vary *within* a single passage's multiple real
+   questions? If yes — real same-passage contrastive signal exists. If no —
+   this doesn't solve the confound either, and the plan needs to change.
+
+Only after step 3 passes does it make sense to turn any of this into a
+trained embedding/classifier (feature-based classifier on top of these
+signals, or a neural embedding) or feed it into an adapter's FiLM-style
+conditioning for QG training (see
+`question_generation/docs/difficulty_steering_mechanisms.md`).
 
 ---
 

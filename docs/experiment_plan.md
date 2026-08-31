@@ -1,162 +1,91 @@
 # Experiment Plan: Difficulty- and Focus-Span-Controlled Question Generation
 
+Project-wide roadmap. Module-specific detail lives in each module's own
+`docs/` — this file stays a high-level index + current status, not a
+duplicate of the detail.
+
 ## Research Questions
 
-1. Can a learned QDE reliably classify question difficulty across EASY / MEDIUM / HARD?
-2. Does curriculum-label conditioning (RACE++) produce questions that are measurably harder than SQuAD-style baseline?
-3. Does conditioning on a focus span (HotpotQA/MultiRC evidence sentences) shift questions toward inference rather than span-locating?
-4. Does combining both controls (M6) produce the best difficulty alignment and inference quality?
+1. Can a learned QDE reliably classify per-*question* difficulty (not just
+   passage-subset identity)? See `question_difficulty/docs/cognitive_difficulty_estimation.md`.
+2. Does difficulty-token conditioning (RACE++) produce measurably
+   difficulty-differentiated questions? **Current answer: no, not with the
+   current data — see status below.**
+3. Does conditioning on a focus span (HotpotQA comparison-type evidence
+   sentences) shift questions toward inference rather than span-locating?
+4. Does combining both controls produce the best difficulty alignment and
+   inference quality? (blocked on Q2)
 
 ---
 
-## Roadmap
+## Current status (updated from this session's findings)
 
-| Step | Model | Input | Training data | Status |
-|---|---|---|---|---|
-| 0 | Baseline QG | `passage` | RACE++ + HotpotQA + MultiRC (no conditioning) | pending |
-| 1 | QDE | `passage + question + answer` | RACE-middle→EASY, RACE-high→MEDIUM, RACE-college→HARD | code done |
-| 2 | Difficulty QG | `passage + <difficulty>` | RACE++ (curriculum labels) | data ready |
-| 3 | Focus-span QG | `passage + focus_span` | HotpotQA (comparison/yes-no) + MultiRC | pending |
-| 4 | M6 (full) | `passage + focus_span + <difficulty>` | Steps 2+3 enriched via QDE | depends on 1+3 |
+| Model type | Status |
+|---|---|
+| `baseline-race` | Trained (t5-base, flan-t5-base) |
+| `diff-control-race` | Trained (t5-base, flan-t5-base). **Token conditioning does not produce measurable difficulty steering** — forced-token generation test showed no more variation than `baseline-race`'s pure sampling noise. Root cause: every RACE passage belongs to exactly one difficulty subset, so the token is collinear with passage style during training. Full writeup: `question_generation/docs/training_details.md`. |
+| `baseline-hotpot` / `focus-control-hotpot` | Trained (t5-base). Not yet evaluated for focus-span relevance. |
+| flan-t5-large (both RACE model types) | Retraining after fixing an incorrect learning rate (5e-4 too high for ~770M params, caused early-stop within ~300 steps at a worse loss than flan-t5-base) |
 
-**Note on answer:** Answer span is NOT an input to the generator (unlike standard SQuAD QG). RACE questions have multiple-choice answers; RACE++ training keeps the answer text available as context but the generator produces the question, not the answer.
+**Active investigation:** whether a genuine per-*question* difficulty signal
+can be extracted (attention dispersion, QA-model pass-rate, answer
+extractiveness, question-answer similarity — all systematic, no LLM judgment,
+no synthetic generation) to replace the passage-inherited label and unblock
+Q2/Q4. See `question_difficulty/docs/cognitive_difficulty_estimation.md`'s
+"Method 4" for the full plan, and `question_generation/docs/difficulty_steering_mechanisms.md`
+for the planned continuous/FiLM-conditioned adapter that would consume it.
+
+Dropped from the pipeline entirely: `MultiRC` (missing evidence annotations
+in the available dataset variant), IRT-based QDE (too few QA "student"
+models for a statistically reliable fit), synthetic LLM-generated training
+questions (quality concerns), LLM-as-annotator (wanted something more
+systematic).
 
 ---
 
-## Step 0 — Baseline QG (M1)
+## Model types
 
-Fine-tune T5-base on RACE++ + HotpotQA + MultiRC: `passage → question` (no difficulty token, no focus span).
+Two fair-comparison pairs (see `question_generation/docs/training_details.md`
+for exact dataset sizes and split details):
 
-Serves as the uncontrolled ablation baseline. Using the same source datasets as Steps 2–4 means comparisons isolate the effect of difficulty/focus-span conditioning rather than dataset distribution shift (which would happen if baseline were SQuAD-trained).
-
----
-
-## Step 1 — Question Difficulty Estimator (QDE)
-
-Three methods trained in parallel. Best one used to enrich data for Step 4.
-
-### Training data
-
-All three classes come from the RACE family — same distribution, only exam level differs. Avoids cross-dataset alignment problems; all answers are multiple-choice (non-span), so no `a_in_passage` artifact.
-
-| Label | Source | HF path | Train size |
-|---|---|---|---|
-| EASY | RACE-middle (Chinese middle-school English exams) | `ehovy/race` middle | ~25K |
-| MEDIUM | RACE-high (Chinese high-school English exams) | `ehovy/race` high | ~62K |
-| HARD | RACE-C (Chinese college entrance / Gaokao) | `tasksource/race-c` | ~12.7K |
-
-Use `--balanced` flag to cap at ~12.7K per class (RACE-C is the bottleneck).
-
-### Methods
-
-| Method | Architecture | Key detail |
+| Model type | Input | Training data |
 |---|---|---|
-| Feature-based | GradientBoostingClassifier | 14 linguistic features (q_wh_type, q_avg_zipf, a_in_passage, p_n_sents, …) |
-| Encoder | RoBERTa / DeBERTa-v3 fine-tune | Input: `[CLS] question [answer: A] [SEP] passage [SEP]`, [CLS] → linear classifier |
-| Contrastive | Triplet loss + projection head | Online triplet mining, L2-normalized embeddings, LR probe phase 2 |
+| `baseline-race` | `passage` | RACE++ (RACE-middle/high/C) |
+| `diff-control-race` | `<EASY\|MEDIUM\|HARD> passage` | RACE++, same split as `baseline-race` |
+| `baseline-hotpot` | `passage` | HotpotQA (comparison-type only) |
+| `focus-control-hotpot` | `passage_with_focus_spans` | HotpotQA, same split as `baseline-hotpot` |
 
-Feature-based model: `a_in_passage` is now less dominant since all three classes come from RACE (all non-span answers). The model must learn genuine difficulty signals. Macro F1 is the primary metric.
-
-Scripts: `question_difficulty/scripts/train_{feature_based,encoder,contrastive}.py`
-Slurm jobs: `question_difficulty/slurms/train_qde_{feature_based,encoder,contrastive}.job`
-
-### Evaluation
-
-- Macro F1 on balanced test set (primary)
-- Confusion matrix (detect systematic misclassification)
-- Feature importance (feature-based only)
+Each pair shares identical train/val/test passages and questions, differing
+only in input conditioning — isolates the effect of the conditioning
+mechanism rather than dataset distribution shift.
 
 ---
 
-## Step 2 — Difficulty-Controlled QG (M5)
+## QDE (Question Difficulty Estimator)
 
-Fine-tune T5-base on RACE++ with curriculum difficulty token prepended.
-
-```
-difficulty: hard context: Young people nowadays...
-→ "What is the author's attitude toward social media?"
-```
-
-Difficulty labels: `middle → MEDIUM`, `high → HARD`, `college (Gaokao) → HARD`.
-SQuAD records (from M1 data) are added with forced `EASY` label.
-
-Input format is identical to M2 (haiku\_cog-based), so M2 and M5 are comparable ablations.
-
-### Evaluation
-
-- QA-eval: run RoBERTa-SQuAD2 on generated questions, measure EM + F1
-- **Difficulty alignment**: run QDE (Step 1) on generated questions, compute `alignment@level = % requests honored`
-- BLEU-4, BERTScore-F1 vs reference questions
-
----
-
-## Step 3 — Focus-Span QG
-
-Fine-tune T5-base on evidence-annotated datasets.
-
-```
-focus: [Scott Derrickson is an American director] [Ed Wood was an American filmmaker]
-context: [full 10-passage context]
-→ "Were Scott Derrickson and Ed Wood of the same nationality?"
-```
-
-### Training data
-
-| Dataset | Evidence granularity | Q types | Size |
-|---|---|---|---|
-| HotpotQA (`type == "comparison"`) | Sentence-level supporting\_facts | Yes/No, multi-hop inference | ~18K (comparison subset) |
-| MultiRC | Sentence-level evidence | Binary T/F, inference | ~9.7K |
-
-Filter HotpotQA to `type == "comparison"` to exclude bridge questions where the answer IS a span.
-
-### Evaluation
-
-- QA-eval (answerability)
-- Human eval: does the question require reasoning from the focus span, not just locating an answer?
-- Proxy: what fraction of generated questions are yes/no or require multi-hop (vs. span-locating wh-)?
-
----
-
-## Step 4 — M6: Focus Span + Difficulty
-
-Combine Steps 2 and 3 via QDE-based data enrichment.
-
-### Bootstrapping pipeline
-
-```
-HotpotQA / MultiRC
-  → run QDE (Step 1) on each (passage, question, answer)
-  → assign EASY / MEDIUM / HARD label
-  → now have (passage, focus_span, difficulty, question) tuples
-
-Combined training data:
-  RACE++ records (difficulty from curriculum, no focus span → span = "")
-  + enriched HotpotQA/MultiRC (focus span + QDE difficulty)
-
-Input: passage + focus_span + <difficulty> → question
-```
-
-Caveat: QDE is trained on SQuAD/RACE distribution; applying it to HotpotQA/MultiRC is extrapolation — difficulty signal will be noisier. Report this in the paper.
-
-### Evaluation
-
-- Difficulty alignment (QDE on outputs)
-- Focus span relevance (human eval or proxy)
-- QA-eval (answerability)
+See `question_difficulty/docs/cognitive_difficulty_estimation.md` for full
+detail: 3 methods trained against the RACE-subset-inherited label (feature-
+based, encoder fine-tune, contrastive), all sharing the same passage-confound
+this experiment plan's Q2 is blocked on, plus the new "Method 4" per-question
+signal extraction effort aimed at resolving it.
 
 ---
 
 ## Model Configuration
 
+Current training config (see `question_generation/docs/training_details.md`
+for the authoritative, up-to-date version — this table is a summary):
+
 | Parameter | Value |
 |---|---|
-| Backbone | `google-t5/t5-base` (220M params) |
-| Batch size | 16 (gradient accumulation ×4 = effective 64) |
-| Learning rate | 5e-4, linear warmup |
-| Max input | 512 tokens |
+| Backbones | `google-t5/t5-base`, `google/flan-t5-base`, `google/flan-t5-large` |
+| Batch size | 16 (t5-base/flan-t5-base), 8 (flan-t5-large) |
+| Learning rate | 5e-4 (base models), 1e-4 (large models — 5e-4 was too high, caused early divergence) |
+| Max input | 512 tokens (HotpotQA), 1024 tokens (RACE — adaptive per dataset, see training_details.md) |
 | Max output | 64 tokens |
-| Epochs | 5 |
-| Hardware | 1× A100 (Mahti `gpusmall`) |
+| Epochs | 5 (with early stopping, patience 3) |
+| Precision | bf16 (not fp16 — fp16 caused NaN/zero-loss collapse on flan-t5 models) |
+| Hardware | 1x GH200 (CSC Roihu `gpumedium`) |
 
 ---
 
@@ -168,4 +97,20 @@ Caveat: QDE is trained on SQuAD/RACE distribution; applying it to HotpotQA/Multi
 | Gao et al. 2019 — Difficulty-Controlled QG | Heuristic signals, no standard framework | Difficulty alignment ~60% |
 | Pan et al. 2020 — Semantic Graphs for Deep Questions | AMR graph + GNN | BERTScore F1 ~0.62 |
 
-Step 2 (M5) should beat Gao et al. 2019 on difficulty alignment. M6 is novel — no prior work combines learned difficulty + focus-span control without an answer span.
+`diff-control-race` needs to beat Gao et al. 2019 on difficulty alignment —
+currently blocked on the per-question signal work above before this
+comparison is meaningful.
+
+---
+
+## Docs index
+
+- `question_generation/docs/training_details.md` — training config, dataset
+  sizes/splits, the token-conditioning confound writeup
+- `question_generation/docs/evaluation_plan.md` — evaluation pipeline stages,
+  scripts, metrics
+- `question_generation/docs/difficulty_steering_mechanisms.md` — the 5
+  candidate conditioning mechanisms, current status of each
+- `question_generation/docs/related_work_qg.md` — literature review
+- `question_difficulty/docs/cognitive_difficulty_estimation.md` — QDE methods,
+  the passage-confound limitation, the per-question signal extraction plan

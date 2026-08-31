@@ -1,102 +1,81 @@
 # Reading Question Generator
 
-Research project: difficulty-controlled and focus-span-conditioned question generation for English reading comprehension, with an IRT-validated Question Difficulty Estimator (QDE).
+Research project: difficulty-controlled and focus-span-conditioned question
+generation for English reading comprehension, plus a Question Difficulty
+Estimator (QDE).
 
-## Research Roadmap
-
-| Step | Name | Input | Output | Status |
-|---|---|---|---|---|
-| **0** | Baseline QG | `passage` | `question` | data ready, training pending |
-| **1** | QDE | `passage + question + answer` | `EASY / MEDIUM / HARD` | code done, training pending |
-| **2** | Difficulty-controlled QG | `passage + difficulty` | `question` | data ready, training pending |
-| **3** | Focus-span QG | `passage + focus_span` | `question` | data TBD |
-| **4** | Full (M6) | `passage + focus_span + difficulty` | `question` | depends on 1+3 |
-
-**Step 4** is the main novelty: QDE (Step 1) enriches HotpotQA/MultiRC with difficulty labels → combined training for focus-span + difficulty controlled generation. Answer span is dropped as input.
-
-See `docs/experiment_plan.md` for full details.
-
----
+**Current status:** difficulty-token conditioning (`diff-control-race`) is
+trained but does not produce measurable difficulty steering — see
+`docs/experiment_plan.md` for the current status table and root cause.
 
 ## Modules
 
 ```
-question_difficulty/         Question Difficulty Estimator (QDE)
+question_generation/     QG training, generation, evaluation (T5 seq2seq)
+  scripts/                prepare_qg_test_sets.py, prepare_qg_data.py,
+                          train_seq2seq.py, generate_qg_questions.py,
+                          augment_qg_difficulty_llm.py
+  slurms/                 Roihu GPU jobs (train_qg_t5base.job, etc.)
+  docs/
+    training_details.md              training config, dataset sizes/splits
+    evaluation_plan.md                evaluation pipeline, scripts, metrics
+    difficulty_steering_mechanisms.md 5 candidate conditioning mechanisms
+    related_work_qg.md               literature survey
+
+question_difficulty/     Question Difficulty Estimator (QDE)
   methods/
-    feature_based/           GradientBoosting + 14 linguistic features
-    encoder/                 RoBERTa/DeBERTa fine-tune ([CLS] classifier)
-    contrastive/             Triplet loss + projection head + LR probe
+    feature_based/        linguistic features (features.py)
   scripts/
-    prepare_qde_data.py      SQuAD→EASY, RACE-middle→MEDIUM, RACE-high→HARD
-    train_feature_based.py
-    train_encoder.py
+    prepare_qde_data.py, train_feature_based.py, train_encoder.py,
     train_contrastive.py
-  slurms/                    Mahti GPU jobs for encoder + contrastive training
+  slurms/                 Roihu GPU jobs
   docs/
-    cognitive_difficulty_estimation.md   QDE design and method comparison
+    cognitive_difficulty_estimation.md   QDE methods, known passage-confound
+                                          limitation, per-question signal plan
 
-question_generation/         Question Generation (seq2seq T5)
+question_answering/      QA-model-based answerability validation
   scripts/
-    build_qg_dataset.py      SQuAD + KG extraction pipeline
-    add_difficulty_annotations.py   Haiku-based cognitive difficulty labelling
-    prepare_t5_inputs.py     Format JSONL → T5 input strings (M1–M5)
-    train_seq2seq.py         T5 fine-tuning
+    run_qa_models.py, assess_llm_quality.py, llm_assessor.py
   slurms/
-    train_qg_t5base.job      Main Mahti job (array over model types)
   docs/
-    experiment_plan.md       Experimental conditions and training plan
-    evaluation_plan.md       Metrics and evaluation procedure
-    related_work_qg.md       Literature survey
-
-knowledge_graph/             KG extraction from passages (used by M3/M4)
-  extractor.py               NER + dependency parsing → Triple objects
-  graph.py                   NetworkX MultiDiGraph
-  coref.py                   Heuristic coreference resolution
+    qa_model_battery.md   Which QA models, why, known deberta-v3-base issue
 
 scripts/
-  download_resources.py      Download SQuAD, RACE, model weights
+  download_resources.py  Download RACE, HotpotQA to HF cache
+  setup.sh
+
+legacy/                  Deprecated M1-M6/KG-based pipeline — not part of the
+                          current roadmap, kept for reference only
 ```
-
-### Legacy note
-
-`question_generation/difficulty/` contains the old rule-based difficulty estimator (Bloom-level heuristics + CEFR scoring). It is not used in the new roadmap but kept for reference. The new QDE lives in `question_difficulty/`.
-
----
 
 ## Datasets
 
 | Dataset | HF path | Role |
 |---|---|---|
-| RACE++ | `chujiezheng/RACE++` | QDE labels (middle→EASY, high→MEDIUM, college→HARD) + Steps 0 & 2 QG training |
-| HotpotQA | `hotpot_qa` distractor | Steps 0 & 3 (supporting\_facts as focus span; filter `type=="comparison"`) |
-| MultiRC | `super_glue` multirc | Steps 0 & 3 (evidence sentences as focus span) |
+| RACE-middle/high | `ehovy/race` | `baseline-race`/`diff-control-race` training, EASY/MEDIUM labels |
+| RACE-C | `tasksource/race-c` | `baseline-race`/`diff-control-race` training, HARD label |
+| HotpotQA (comparison-type) | `hotpotqa/hotpot_qa` distractor | `baseline-hotpot`/`focus-control-hotpot` training |
 
----
+`MultiRC` was dropped from the pipeline (missing evidence annotations in the
+available dataset variant).
 
 ## Setup
 
 ```bash
-# Download datasets and weights
-python scripts/download_resources.py
-
-# Prepare QDE training data
-python question_difficulty/scripts/prepare_qde_data.py
-
-# Prepare T5 inputs for QG (e.g., M2 = difficulty-controlled)
-python question_generation/scripts/prepare_t5_inputs.py --model-types m2
+bash scripts/setup.sh                          # Git hooks, Claude memory
+python scripts/download_resources.py           # Download datasets to HF cache
+bash scripts/prepare_all_data.sh --qg-only      # Split + format QG training data
 ```
 
-Mahti training: push to git → `git pull` on Mahti → `sbatch <job>`.
+Roihu training: push to git → `git pull` on Roihu → `sbatch <job>`
+(`.job` files are gitignored — sync via `scp` instead of git).
 
----
+## Docs index
 
-## Model Naming
-
-| ID | Description | Input |
-|---|---|---|
-| M1 | Baseline | `passage` |
-| M2 | + haiku\_cog difficulty token | `passage + <difficulty>` |
-| M3 | + linearized KG | `passage + kg_text + <difficulty>` |
-| M4 | + KG + difficulty | `passage + kg_text + <difficulty>` |
-| M5 | Curriculum labels (SQuAD+RACE) | `passage + <difficulty>` |
-| M6 | Focus span + difficulty (Step 4) | `passage + focus_span + <difficulty>` |
+- `docs/experiment_plan.md` — project-wide roadmap, current status, research questions
+- `question_generation/docs/training_details.md` — training config, dataset sizes/splits
+- `question_generation/docs/evaluation_plan.md` — evaluation pipeline, scripts, metrics
+- `question_generation/docs/difficulty_steering_mechanisms.md` — conditioning mechanisms compared
+- `question_generation/docs/related_work_qg.md` — literature review
+- `question_difficulty/docs/cognitive_difficulty_estimation.md` — QDE methods, known limitations
+- `question_answering/docs/qa_model_battery.md` — QA model list, why these, known `deberta-v3-base` issue
