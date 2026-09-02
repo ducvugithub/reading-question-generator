@@ -18,7 +18,7 @@ Defined in `question_answering/scripts/run_qa_models.py`'s `_QA_MODELS`.
 |---|---|---|
 | `deepset/roberta-base-squad2` | ✅ | Strongest of the four; primary source for attention-dispersion extraction |
 | `google-bert/bert-base-uncased-finetuned-squad` | ✅ | Mid-capability |
-| `mrm8488/distilroberta-base-finetuned-squad` | ✅ | Weakest/smallest — gives the pass-rate signal a capability floor to contrast against |
+| `mrm8488/distilroberta-base-finetuned-squad` | ⚠️ **Broken (2026-09-02)** | 404s on HF Hub as of this date — worked earlier in this project (used successfully in the n=102 signal validation run), likely renamed/removed since. Needs a replacement, not yet picked. |
 | `microsoft/deberta-v3-base` | ⚠️ **No** | This is the base pretrained checkpoint, never fine-tuned on SQuAD. It can still run and produce *some* output, but its attention/predictions aren't grounded in the QA task the way the other three are. |
 
 ## Known issue: `deberta-v3-base` isn't actually a QA model
@@ -34,6 +34,7 @@ trained to do extractive QA. Two consequences:
   model failing every item would just look like "everything is HARD," not a
   real difficulty signal.
 
-**Fix (not yet done):** replace with a real SQuAD-finetuned DeBERTa checkpoint
-to restore the intended weak→strong capability spread across all 4 models. Needs
-an actual HF Hub lookup rather than guessing a model ID.
+**Fix — found and verified (2026-09-02):** `deepset/deberta-v3-base-squad2` is
+a real SQuAD2-finetuned DeBERTa checkpoint (confirmed loadable, not guessed).
+Not yet swapped into `run_qa_models.py`'s `_QA_MODELS` — still needs that
+update, plus a replacement for the now-broken `mrm8488` entry above.

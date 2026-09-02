@@ -142,8 +142,26 @@ a better QDE and as new training labels for `diff-control-race`.
 
 1. **Attention dispersion** — feed `(question, passage)` into a SQuAD-finetuned
    QA model (`deepset/roberta-base-squad2`), extract the question→passage
-   attention sub-block, summarize how concentrated (one sentence, simple) vs.
-   spread out (many sentences, harder) it is.
+   attention sub-block, aggregate token-level attention into per-sentence
+   mass, and compute its entropy: low entropy = concentrated on one sentence
+   (simple lookup), high entropy = spread across many (harder, needs
+   synthesis). Also compute count-above-threshold and max-single-sentence
+   attention as complementary scalar features on the same per-sentence
+   distribution.
+
+   **Which layer/head?** `roberta-base` has 12 layers x 12 heads — no ground
+   truth exists to pick one in advance (that's the whole problem this method
+   is trying to solve), so layer choice is not assumed, it's *found*
+   empirically as part of the same validation step: compute entropy
+   separately per candidate layer (a few candidates: early/middle/last/
+   all-layers-averaged), then for each candidate compute the within-passage
+   spread (same test as below — how much entropy differs among one passage's
+   own multiple real questions). **Pick whichever layer preserves the most
+   variance between different questions on the same passage** — that's the
+   layer most sensitive to per-question differences rather than passage
+   identity, which is exactly the property this whole method needs. No
+   labels required for this selection, since it's a property of the numbers
+   themselves (within-passage spread), not a comparison against ground truth.
 2. **QA-model pass-rate** — run the 3 properly SQuAD-finetuned models from
    the QA battery (see `question_answering/docs/qa_model_battery.md` — excludes
    `microsoft/deberta-v3-base`, which isn't actually SQuAD-finetuned) against
@@ -239,11 +257,21 @@ project.
 **Next step — validate before building anything further.** Compute all 4
 signals on a sample of real RACE questions and check:
 
-1. Does each signal actually vary meaningfully across questions (not flat/noise)?
-2. Does it correlate at all with the existing RACE subset label (sanity check)?
+1. **Non-degeneracy check (no labels needed)**: does each signal actually
+   produce different numbers for different questions, or is it flat/constant?
+   Just look at the raw distribution (std/range/histogram) of the computed
+   values across a sample — a feature that outputs basically the same number
+   for every question has nothing to offer, and this is visible directly from
+   the numbers with no ground truth required.
+2. Does it correlate at all with the existing RACE subset label (weak sanity
+   check only — that label is known-noisy, so this isn't decisive, but zero
+   correlation even in aggregate would be a red flag).
 3. **Critical test**: does it vary *within* a single passage's multiple real
    questions? If yes — real same-passage contrastive signal exists. If no —
-   this doesn't solve the confound either, and the plan needs to change.
+   this doesn't solve the confound either, and the plan needs to change. This
+   is also how layer/aggregation choice gets picked for the attention-based
+   signal (see above) — same test, doubling as both validation and a
+   hyperparameter-selection criterion.
 
 Only after step 3 passes does it make sense to turn any of this into a
 trained embedding/classifier (feature-based classifier on top of these

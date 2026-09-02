@@ -166,6 +166,68 @@ adapter alongside the passage. Inference: no target question exists yet, so
 use a precomputed representative code per difficulty level (e.g. the average
 encoder output over many real EASY/MEDIUM/HARD questions) instead.
 
+### Validated signal source (2026-09-01)
+
+Ran `question_difficulty/scripts/validate_difficulty_signals.py` at increasing
+scale (n=3, 30, 102 passages, balanced across EASY/MEDIUM/HARD from n=102
+onward) — see `question_difficulty/docs/cognitive_difficulty_estimation.md`'s
+"Method 4" for the full methodology and per-layer numbers. Findings:
+
+- **Sentence-level entropy at layer 6** of `deepset/roberta-base-squad2`
+  consistently shows the highest within-passage mean spread across all 3
+  runs (0.187±0.142 at n=102, clear gap over the next-highest layer).
+- **Token-level entropy at layer 11** (the last layer) took over as the
+  token-level leader once HARD-level passages were properly included
+  (n=102) — layer 6 was only competitive at token-level with the earlier,
+  incomplete n=30 sample.
+- Manual qualitative review of ~20 real (question, answer) pairs at the
+  entropy extremes confirmed a sensible pattern independent of the
+  statistics: high-entropy questions tend to be whole-passage synthesis
+  questions ("best title", "what did X learn") vs. low-entropy questions
+  tending to be single-sentence factual lookups — holds up within multiple
+  individual passages, not just in aggregate.
+- Non-attention text signal `answer_extractiveness_overlap` stayed stable
+  across all 3 runs (0.579 → 0.625 → 0.558) — a reasonably trustworthy
+  secondary signal, not currently wired into the adapter design below.
+
+### Forms of the signal considered
+
+| Form | Fixed-size? | Needs training? | Notes |
+|---|---|---|---|
+| Scalar entropy (layer 6 or 11) | Yes (1 number) | No — pure computation | **Starting point** — simplest, already validated above |
+| Weighted-average passage embedding (`Σ attention_i × token_embedding_i`) | Yes (matches QA model's hidden dim) | No — pure computation | Richer (keeps *where*, not just *how spread*), no new trainable component |
+| Learned pooling network (RNN/small attention-pooling over the raw distribution) | Yes (by construction) | **Yes** — trained jointly with the adapter via the same generation loss | Most expressive, most complexity/risk |
+| Binary/multi-tier thresholded span markup (`<HIGH_FOCUS>`/`<MED_FOCUS>` tags in passage text) | N/A — not a vector, it's text markup | No | Reuses `focus-control-hotpot`'s existing architecture instead of a new adapter; more human-interpretable/controllable at inference (see below) |
+
+### The train/inference asymmetry (applies to every form above)
+
+Training always has the real target question available, so the QA model can
+compute a real signal from it. At inference there is no target question yet
+(that's what's being generated), so the QA model cannot run. Fix, same
+principle regardless of signal form: **use a representative value/vector
+borrowed or averaged from real training examples**, not something
+hand-synthesized from scratch — e.g. average the real signal across several
+training questions that read as "hard" in the manual review, rather than
+inventing an arbitrary value/weighting.
+
+### Alternative worth revisiting: multi-tier focus-span markup
+
+Thresholding the raw attention distribution into discrete tiers
+(`attention > 0.25 → <HIGH_FOCUS>`, `0.10-0.25 → <MED_FOCUS>`, else
+unmarked) and inserting those tags directly into the passage text turns this
+into a variant of the *already-built* `focus-control-hotpot` architecture —
+no adapter needed at all. Advantages over the FiLM/vector approach:
+more human-interpretable and controllable at inference (choose how many
+spans at which tier, rather than picking a continuous vector), and reuses
+working infrastructure. Downside: loses fine-grained weighting (discrete
+tiers, not continuous), and still needs an inference-time decision rule for
+how many spans/tiers to mark — just a simpler decision than picking FiLM
+vector values.
+
+**Plan: start with scalar entropy + FiLM adapter (simplest) to test whether
+difficulty control is achievable at all before investing in the richer
+vector forms or the multi-tier markup alternative.**
+
 ---
 
 ## 3. Prefix Tuning
@@ -388,9 +450,18 @@ Why:
 
 **Current status / next steps:**
 - [x] Implement token-only conditioning (`diff-control-race`) — trained, tested, doesn't steer
-- [ ] Validate per-question difficulty signal exists (attention dispersion,
-      QA pass-rate, answer extractiveness, question-answer similarity —
-      check for real within-passage variance before building further)
-- [ ] Implement continuous/FiLM-conditioned adapter using that signal
-- [ ] Re-run the same-passage forced-token test to check for real steering
-- [ ] Compare against prefix tuning / auxiliary loss if adapter also fails
+- [x] Validate per-question difficulty signal exists — confirmed via
+      within-passage variance (statistical) and manual review (qualitative);
+      see "Validated signal source" above. Layer 6 (sentence-level) and
+      layer 11 (token-level) of `roberta-base-squad2` both hold up.
+- [ ] Scale signal extraction from the ~100-passage validation sample to the
+      full ~86K RACE training questions
+- [ ] Implement the FiLM-conditioned adapter, **starting with scalar entropy**
+      (simplest form) — frozen `baseline-race` checkpoint, adapter-only
+      training, single standard cross-entropy loss
+- [ ] Re-run the same-passage forced-signal generation test to check for real steering
+- [ ] If scalar entropy doesn't steer well: try the weighted-embedding form,
+      or the multi-tier focus-span markup alternative (reuses
+      `focus-control-hotpot` infrastructure, more interpretable/controllable
+      at inference — see "Alternative worth revisiting" above)
+- [ ] Compare against prefix tuning / auxiliary loss if all adapter variants fail
