@@ -26,11 +26,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 from tqdm import tqdm
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from question_answering.qa_evaluator import QAEvaluator
 
 _MODELS = [
     ("weak",   "distilbert-base-cased-distilled-squad"),
@@ -41,18 +43,7 @@ _MODELS = [
 _CORRECT_THRESHOLD = 0.5   # F1 above this = model answered correctly
 _CHECKPOINT_EVERY  = 100
 
-
-def _token_f1(pred: str, gold: str) -> float:
-    pred_tokens = re.sub(r"[^\w\s]", "", pred.lower()).split()
-    gold_tokens = re.sub(r"[^\w\s]", "", gold.lower()).split()
-    if not pred_tokens or not gold_tokens:
-        return 0.0
-    common = set(pred_tokens) & set(gold_tokens)
-    if not common:
-        return 0.0
-    precision = len(common) / len(pred_tokens)
-    recall    = len(common) / len(gold_tokens)
-    return 2 * precision * recall / (precision + recall)
+_evaluator = QAEvaluator()
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -122,7 +113,7 @@ def main() -> None:
             for label, qa in pipelines:
                 try:
                     result = qa(question=question, context=passage, max_answer_len=50)
-                    f1 = _token_f1(result["answer"], gold)
+                    f1 = _evaluator.token_f1(result["answer"], gold)
                 except Exception:
                     f1 = 0.0
                 f1_scores.append(f1)

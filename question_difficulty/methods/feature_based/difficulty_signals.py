@@ -100,6 +100,20 @@ class AttentionDispersionSignal(DifficultySignal):
     def _entropy(dist: list[float]) -> float:
         return -sum(p * math.log(p) for p in dist if p > 0)
 
+    @classmethod
+    def _normalized_entropy(cls, dist: list[float]) -> float:
+        """Raw entropy divided by its own ceiling log(N) (N = number of
+        outcomes -- sentences or tokens). Raw entropy is bounded by log(N),
+        so distributions over more outcomes (longer passages) have a higher
+        entropy ceiling regardless of how peaked/spread attention actually
+        is. This rescales to [0, 1] -- "how close to uniform, relative to
+        this distribution's own size" -- so passages of different lengths
+        are comparable."""
+        n = len(dist)
+        if n <= 1:
+            return 0.0
+        return cls._entropy(dist) / math.log(n)
+
     @staticmethod
     def _normalize(raw: list[float]) -> list[float]:
         total = sum(raw) or 1.0
@@ -210,6 +224,8 @@ class AttentionDispersionSignal(DifficultySignal):
         sub = avg_heads[question_positions][:, passage_positions]
         per_passage_token = sub.mean(dim=0).tolist()
 
+        token_dist = self._normalize(per_passage_token)
+
         sent_sum = [0.0] * len(sent_spans)
         for tok_idx, pos in enumerate(passage_positions):
             char_start, char_end = offsets[pos]
@@ -225,6 +241,10 @@ class AttentionDispersionSignal(DifficultySignal):
             "sentences": sentence_texts,
             "distribution": dist,
             "entropy": self._entropy(dist),
+            "entropy_norm": self._normalized_entropy(dist),
+            "num_tokens": len(passage_positions),
+            "tok_entropy": self._entropy(token_dist),
+            "tok_entropy_norm": self._normalized_entropy(token_dist),
             "layer": layer,
         }
 
@@ -252,7 +272,7 @@ class AttentionDispersionSignal(DifficultySignal):
         if not question_positions or not passage_positions:
             return {"sentences": sentence_texts, "distributions": [], "entropies": []}
 
-        distributions, entropies = [], []
+        distributions, entropies, entropies_norm = [], [], []
         for layer_attn in out.attentions:
             avg_heads = layer_attn[0].mean(dim=0)
             sub = avg_heads[question_positions][:, passage_positions]
@@ -271,11 +291,18 @@ class AttentionDispersionSignal(DifficultySignal):
             dist = self._normalize(sent_sum)
             distributions.append(dist)
             entropies.append(self._entropy(dist))
+            entropies_norm.append(self._normalized_entropy(dist))
 
-        return {"sentences": sentence_texts, "distributions": distributions, "entropies": entropies}
+        return {
+            "sentences": sentence_texts,
+            "distributions": distributions,
+            "entropies": entropies,
+            "entropies_norm": entropies_norm,
+        }
 
     def _add_token_features(self, features: dict[str, float], dist: list[float], suffix: str) -> None:
         features[f"tok_entropy_{suffix}"] = self._entropy(dist)
+        features[f"tok_entropy_norm_{suffix}"] = self._normalized_entropy(dist)
         features[f"tok_max_{suffix}"] = max(dist)
         features[f"tok_min_{suffix}"] = min(dist)
         for pct in self.TOP_PCTS:
@@ -285,6 +312,8 @@ class AttentionDispersionSignal(DifficultySignal):
                                 avg_dist: list[float], suffix: str) -> None:
         features[f"sent_total_entropy_{suffix}"] = self._entropy(total_dist)
         features[f"sent_avg_entropy_{suffix}"] = self._entropy(avg_dist)
+        features[f"sent_total_entropy_norm_{suffix}"] = self._normalized_entropy(total_dist)
+        features[f"sent_avg_entropy_norm_{suffix}"] = self._normalized_entropy(avg_dist)
         features[f"sent_total_max_{suffix}"] = max(total_dist)
         features[f"sent_avg_max_{suffix}"] = max(avg_dist)
         features[f"sent_total_min_{suffix}"] = min(total_dist)
@@ -294,7 +323,11 @@ class AttentionDispersionSignal(DifficultySignal):
 class QAPassRateSignal(DifficultySignal):
     """Runs a battery of SQuAD-finetuned QA models against the gold answer;
     returns the fraction that answer correctly. Excludes non-finetuned models
-    (e.g. microsoft/deberta-v3-base) -- see question_answering/docs/qa_model_battery.md."""
+    (e.g. microsoft/deberta-v3-base) -- see question_answering/docs/qa_model_battery.md.
+
+    Correctness is QAEvaluator's recall_overlap metric (content-word,
+    stopword-filtered recall against gold, threshold 0.5) -- see
+    question_answering/qa_evaluator.py for why this lives there, not here."""
     name = "qa_pass_rate"
 
     _DEFAULT_MODELS = [
@@ -307,6 +340,9 @@ class QAPassRateSignal(DifficultySignal):
         import sys
         from transformers import pipeline
 
+        from question_answering.qa_evaluator import QAEvaluator
+
+        self._evaluator = QAEvaluator()
         self.pipelines = {}
         for name in (qa_model_names or self._DEFAULT_MODELS):
             try:
@@ -316,20 +352,12 @@ class QAPassRateSignal(DifficultySignal):
         if not self.pipelines:
             raise RuntimeError("No QA models could be loaded")
 
-    def _is_correct(self, predicted: str, gold: str) -> bool:
-        pred_words = _content_words(_tokenize(predicted))
-        gold_words = _content_words(_tokenize(gold))
-        if not gold_words:
-            return predicted.strip().lower() == gold.strip().lower()
-        overlap = len(pred_words & gold_words) / len(gold_words)
-        return overlap >= 0.5
-
     def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
         n_correct = 0
         for name, pipe in self.pipelines.items():
             try:
                 result = pipe(question=question, context=passage)
-                if self._is_correct(result["answer"], answer):
+                if self._evaluator.is_correct(result["answer"], answer, metric="recall_overlap"):
                     n_correct += 1
             except Exception:
                 continue
