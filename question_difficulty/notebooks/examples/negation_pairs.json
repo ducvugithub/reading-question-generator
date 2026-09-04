@@ -1,0 +1,37 @@
+[
+  {
+    "passage": "The new employee handbook covers vacation policy, sick leave, and health insurance. It does not include any information about retirement benefits, since those are managed by a separate HR portal.",
+    "positive_question": "What three topics does the employee handbook cover?",
+    "positive_answer": "vacation policy, sick leave, and health insurance",
+    "negation_question": "What topic does the employee handbook NOT include?",
+    "negation_answer": "retirement benefits"
+  },
+  {
+    "passage": "The gym's monthly membership includes access to the weight room and cardio machines, but it does not include personal training sessions.",
+    "positive_question": "What does the gym membership include?",
+    "positive_answer": "the weight room and cardio machines",
+    "negation_question": "What does the gym membership NOT include?",
+    "negation_answer": "personal training sessions"
+  },
+  {
+    "passage": "The cafe's lunch menu offers soup, salad, and a daily sandwich special. It does not offer any hot entrees until dinner service begins at 5PM.",
+    "positive_question": "What three items does the cafe's lunch menu offer?",
+    "positive_answer": "soup, salad, and a daily sandwich special",
+    "negation_question": "What does the cafe's lunch menu NOT offer?",
+    "negation_answer": "hot entrees"
+  },
+  {
+    "passage": "The basic travel insurance plan covers trip cancellation, lost luggage, and emergency medical expenses abroad. It does not cover pre-existing medical conditions unless the traveler purchases an additional waiver within 14 days of booking. Many customers are surprised to learn this exclusion applies even to well-controlled conditions like diabetes or asthma. Travelers with chronic illnesses are strongly advised to read the fine print before relying on the basic plan alone.",
+    "positive_question": "What three things does the basic travel insurance plan cover?",
+    "positive_answer": "trip cancellation, lost luggage, and emergency medical expenses abroad",
+    "negation_question": "What does the basic travel insurance plan NOT cover unless a waiver is purchased?",
+    "negation_answer": "pre-existing medical conditions"
+  },
+  {
+    "passage": "Starting next month, the city's curbside recycling program will accept paper, cardboard, glass bottles, and most plastics labeled 1 through 5. City officials spent the past year studying which materials could realistically be processed at the local sorting facility without expensive upgrades. The program will not accept plastic bags, styrofoam, or any electronics, since the facility lacks the equipment to safely process them and past attempts led to jammed machinery. Residents who want to dispose of electronics can instead drop them off at the county hazardous waste center, which accepts them free of charge on the first Saturday of every month. City officials estimate that clearly excluding these problematic materials from curbside pickup will reduce contamination rates at the sorting facility by nearly 40 percent, based on data from similar programs in neighboring cities.",
+    "positive_question": "What four types of materials will the curbside recycling program accept?",
+    "positive_answer": "paper, cardboard, glass bottles, and most plastics labeled 1 through 5",
+    "negation_question": "What three things will the curbside recycling program NOT accept?",
+    "negation_answer": "plastic bags, styrofoam, or any electronics"
+  }
+]

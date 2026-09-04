@@ -1,0 +1,37 @@
+[
+  {
+    "passage": "Lily always carries a spare phone charger in her bag. Her phone battery tends to die quickly during long days at work.",
+    "plain_question": "What does Lily always carry in her bag?",
+    "plain_answer": "a spare phone charger",
+    "dense_question": "What accessory does Lily routinely transport within her bag?",
+    "dense_answer": "a spare phone charger"
+  },
+  {
+    "passage": "Every school day, Maria wakes up early. She needs to go to school at 9AM, so she prepares her books and uniform the night before. Her mother drops her off on the way to work.",
+    "plain_question": "What does she need to do at 9AM?",
+    "plain_answer": "go to school",
+    "dense_question": "What obligation necessitates her early departure at 9AM?",
+    "dense_answer": "go to school"
+  },
+  {
+    "passage": "Every winter, the small town of Millbrook loses power for a few hours during storms. Last year, the local government installed a backup generator at the community center to keep the building running during outages. The generator can supply electricity for up to 12 hours before needing more fuel. Residents can charge their phones and stay warm there when their home power goes out. Some elderly residents rely on the center to keep medical equipment running. The town is now considering installing solar panels to reduce fuel costs.",
+    "plain_question": "What did the local government install at the community center?",
+    "plain_answer": "a backup generator",
+    "dense_question": "What apparatus did municipal authorities procure and install at the communal facility?",
+    "dense_answer": "a backup generator"
+  },
+  {
+    "passage": "In 2015, a small biotech company in Boston began testing a new type of bandage designed for chronic wounds. Unlike traditional bandages, this one contained a thin layer of sensors that measured moisture, temperature, and bacterial growth in real time. The data was sent wirelessly to a smartphone app, allowing doctors to monitor a patient's healing progress without requiring a clinic visit. Early trials showed that patients using the smart bandage healed nearly 20 percent faster than those using standard dressings. Doctors were able to adjust treatment plans within a day of an infection appearing, rather than waiting for the patient's next scheduled appointment. The bandage costs significantly more than a regular one, which has slowed its adoption in hospitals with tight budgets. Even so, several insurance companies have begun covering the cost for patients with diabetes, who are especially prone to slow-healing wounds. The company hopes to expand production and lower the price within the next two years.",
+    "plain_question": "What three things did the sensors in the bandage measure?",
+    "plain_answer": "moisture, temperature, and bacterial growth",
+    "dense_question": "What three physiological parameters were quantified by the embedded sensor array?",
+    "dense_answer": "moisture, temperature, and bacterial growth"
+  },
+  {
+    "passage": "When Elena took over as principal of Riverside Elementary three years ago, nearly a third of the school's students were missing more than two weeks of class every year. After interviewing families, she discovered that many parents worked early shifts and had no way to get their children to school on time, since the nearest bus stop was almost two miles away. Elena partnered with a local transit company to add a new bus route that stopped directly in front of the school at 7:15 each morning. She also arranged for breakfast to be served starting at 7:00, so students arriving early would not have to wait outside in the cold. Within the first semester, chronic absenteeism dropped from 32 percent to 19 percent. Teachers reported that students who used to miss the first class of the day were now consistently present, which allowed lessons to build on each other more smoothly. The district was impressed enough that it approved funding to extend the new bus route to two neighboring schools the following year. Some parents initially worried that the earlier start time would be difficult for younger children, but a survey conducted at the end of the year found that most families adjusted within the first month. Elena says the biggest lesson from the program was that a single logistical barrier, transportation, was quietly undermining years of curriculum improvements the school had already made.",
+    "plain_question": "What time does the new bus route stop in front of the school?",
+    "plain_answer": "7:15",
+    "dense_question": "At what hour does the newly instituted transit route arrive at the institution's entrance?",
+    "dense_answer": "7:15"
+  }
+]

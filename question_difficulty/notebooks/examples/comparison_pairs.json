@@ -1,0 +1,47 @@
+[
+  {
+    "passage": "The Riverside factory produced 1,200 units in January and 1,850 units in March. The Lakeside factory produced 1,500 units in January and 1,600 units in March. The Hillcrest factory produced 1,300 units in January and 1,420 units in March.",
+    "literal_question": "How many units did the Riverside factory produce in March?",
+    "literal_answer": "1,850",
+    "comparison_question": "Which factory produced more units in March, Riverside or Lakeside?",
+    "comparison_answer": "Riverside",
+    "superlative_question": "Which factory produced the most units in March?",
+    "superlative_answer": "Riverside"
+  },
+  {
+    "passage": "Sarah and her friend had a marathon yesteday afterwork. Sarah finished the marathon in 3 hours and 45 minutes. Her teammate Priya finished in 3 hours and 52 minutes. Their teammate Wei finished in 3 hours and 38 minutes. The marathon was all first time particpating for all of them.",
+    "literal_question": "How long did Sarah take to finish the marathon?",
+    "literal_answer": "3 hours and 45 minutes",
+    "comparison_question": "Who finished the marathon faster, Sarah or Priya?",
+    "comparison_answer": "Sarah",
+    "superlative_question": "Who finished the marathon fastest among the three teammates?",
+    "superlative_answer": "Wei"
+  },
+  {
+    "passage": "Museum Charsm is one of the oldest museums in the country. It had been in private control for many years until 1994. The museum's east wing opened in 1998. The west wing opened in 2006, after a major renovation project. The south wing, the newest addition, opened in 2015. Nowadays, visitors can freely enter and wander all the museum with a very affordable cost of 15e. The museum is open from 9 to 6 everyday except Monday. ",
+    "literal_question": "When did the museum's west wing open?",
+    "literal_answer": "2006",
+    "comparison_question": "Which wing of the museum opened first, the east wing or the west wing?",
+    "comparison_answer": "the east wing",
+    "superlative_question": "Which wing of the museum opened most recently?",
+    "superlative_answer": "the south wing"
+  },
+  {
+    "passage": "The Zenith X200 smartphone has a battery life of 14 hours and costs $699. Its main competitor, the Aurora S5, has a battery life of 18 hours but costs $799. A newer budget option, the Nova Lite, has a battery life of 20 hours and costs only $549. Reviewers noted that despite its higher price, the Aurora S5 has become popular among frequent travelers who value longer battery life over cost savings. The Zenith X200 remains popular with budget-conscious buyers who charge their phones more frequently throughout the day. The Nova Lite has quickly gained a following among budget shoppers who also want long battery life.",
+    "literal_question": "What is the battery life of the Aurora S5?",
+    "literal_answer": "18 hours",
+    "comparison_question": "Which phone has a longer battery life, the Zenith X200 or the Aurora S5?",
+    "comparison_answer": "the Aurora S5",
+    "superlative_question": "Which of the three phones has the longest battery life?",
+    "superlative_answer": "the Nova Lite"
+  },
+  {
+    "passage": "A recent health department report compared emergency room wait times at three hospitals in the same county. At Northside General, the average wait time for non-critical patients was 94 minutes, and the hospital employed 12 full-time emergency physicians. At Southbrook Medical Center, the average wait time was 61 minutes, despite employing only 9 full-time emergency physicians. At Eastview Regional, the average wait time was 108 minutes, the longest of the three, even though the hospital employed 14 full-time emergency physicians. Investigators found that Southbrook's shorter wait times were largely due to a triage software system introduced two years earlier, which allowed nurses to route minor cases to a fast-track unit staffed by physician assistants. Northside had piloted a similar system the previous year but discontinued it after complaints about inconsistent case routing. Eastview has not yet implemented any triage software, and administrators say budget constraints have delayed the project. The health department recommended that Northside and Eastview both revisit the triage software with updated training protocols before their next budget cycles.",
+    "literal_question": "How many full-time emergency physicians did Northside General employ?",
+    "literal_answer": "12",
+    "comparison_question": "Which hospital had shorter emergency room wait times, Northside General or Southbrook Medical Center?",
+    "comparison_answer": "Southbrook Medical Center",
+    "superlative_question": "Which of the three hospitals had the longest emergency room wait time?",
+    "superlative_answer": "Eastview Regional"
+  }
+]
