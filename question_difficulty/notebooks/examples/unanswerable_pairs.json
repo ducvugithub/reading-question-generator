@@ -1,0 +1,20 @@
+[
+  {
+    "passage": "Tom bought a red bicycle at the shop yesterday. He rode it around the block once before parking it in the garage.",
+    "answerable_question": "What color was the bicycle Tom bought?",
+    "answerable_answer": "red",
+    "unanswerable_question": "How much did Tom pay for the bicycle?"
+  },
+  {
+    "passage": "The city library extended its weekend hours starting this month, staying open until 8 PM on Saturdays instead of 5 PM. Library staff say the change was requested by several local college students who needed a quiet place to study on weekends. The extended hours will be reviewed again next year based on how many visitors use the library during the new time slot.",
+    "answerable_question": "Until what time is the library now open on Saturdays?",
+    "answerable_answer": "8 PM",
+    "unanswerable_question": "How many college students requested the change?"
+  },
+  {
+    "passage": "Dr. Amara Chen led a two-year study tracking sleep patterns in over 400 shift workers across six hospitals. The study found that nurses working rotating night shifts reported significantly more trouble falling asleep than those on fixed schedules. Chen's team recommended that hospitals adopt fixed shift schedules whenever possible, and several hospitals in the study began piloting the change within months of the report's publication. The research was funded by a grant from the national health ministry and published in a peer-reviewed sleep medicine journal. Chen said the next phase of research would examine whether the sleep improvements led to fewer medical errors during night shifts.",
+    "answerable_question": "How many shift workers did the study track?",
+    "answerable_answer": "over 400",
+    "unanswerable_question": "What was Dr. Chen's academic degree in?"
+  }
+]

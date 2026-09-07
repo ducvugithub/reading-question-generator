@@ -6,7 +6,6 @@ subset-inherited label; they compute a signal purely from the individual
 """
 from __future__ import annotations
 
-import math
 import re
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -19,7 +18,6 @@ _STOPWORDS = {
     "and", "or", "but", "not", "no", "what", "which", "who", "whom",
     "when", "where", "why", "how",
 }
-_SENT_RE = re.compile(r"[.!?]+")
 
 
 def _tokenize(text: str) -> list[str]:
@@ -75,67 +73,27 @@ class AttentionDispersionSignal(DifficultySignal):
     TOP_PCTS = (5, 10, 15)
 
     def __init__(self, qa_model_name: str = "deepset/roberta-base-squad2", max_length: int = 512):
-        import torch
-        from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+        from question_answering.qa_model import ExtractiveQAModel
 
-        self.torch = torch
-        self.tokenizer = AutoTokenizer.from_pretrained(qa_model_name)
-        self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
-        self.model.eval()
-        self.max_length = max_length
-
-    def _sentence_spans(self, passage: str) -> list[tuple[int, int]]:
-        """Character (start, end) spans for each sentence in the passage."""
-        spans = []
-        start = 0
-        for m in _SENT_RE.finditer(passage):
-            end = m.end()
-            spans.append((start, end))
-            start = end
-        if start < len(passage):
-            spans.append((start, len(passage)))
-        return spans or [(0, len(passage))]
-
-    @staticmethod
-    def _entropy(dist: list[float]) -> float:
-        return -sum(p * math.log(p) for p in dist if p > 0)
-
-    @classmethod
-    def _normalized_entropy(cls, dist: list[float]) -> float:
-        """Raw entropy divided by its own ceiling log(N) (N = number of
-        outcomes -- sentences or tokens). Raw entropy is bounded by log(N),
-        so distributions over more outcomes (longer passages) have a higher
-        entropy ceiling regardless of how peaked/spread attention actually
-        is. This rescales to [0, 1] -- "how close to uniform, relative to
-        this distribution's own size" -- so passages of different lengths
-        are comparable."""
-        n = len(dist)
-        if n <= 1:
-            return 0.0
-        return cls._entropy(dist) / math.log(n)
-
-    @staticmethod
-    def _normalize(raw: list[float]) -> list[float]:
-        total = sum(raw) or 1.0
-        return [v / total for v in raw]
+        self.qa_model = ExtractiveQAModel(qa_model_name, max_length)
 
     def _top_pct_mass(self, dist: list[float], pct: int) -> float:
         n = max(1, round(len(dist) * pct / 100))
         return sum(sorted(dist, reverse=True)[:n])
 
     def compute(self, passage: str, question: str, answer: str) -> dict[str, float]:
-        enc = self.tokenizer(
+        enc = self.qa_model.tokenizer(
             question, passage,
-            max_length=self.max_length, truncation="only_second",
+            max_length=self.qa_model.max_length, truncation="only_second",
             return_offsets_mapping=True, return_tensors="pt",
         )
         offsets = enc.pop("offset_mapping")[0].tolist()
         sequence_ids = enc.sequence_ids(0)  # None=special, 0=question, 1=passage
 
-        with self.torch.no_grad():
-            out = self.model(**enc, output_attentions=True)
+        with self.qa_model.torch.no_grad():
+            out = self.qa_model.model(**enc, output_attentions=True)
 
-        sent_spans = self._sentence_spans(passage)
+        sent_spans = self.qa_model.sentence_spans(passage)
         n_sents = len(sent_spans)
 
         question_positions = [i for i, s in enumerate(sequence_ids) if s == 0]
@@ -157,7 +115,7 @@ class AttentionDispersionSignal(DifficultySignal):
             per_passage_token = sub.mean(dim=0).tolist()  # (n_p,) — avg over question tokens
 
             # --- token-level ---
-            token_dist = self._normalize(per_passage_token)
+            token_dist = self.qa_model.normalize(per_passage_token)
             all_layer_token_dists.append(token_dist)
             self._add_token_features(features, token_dist, f"layer{layer_idx}")
 
@@ -174,9 +132,9 @@ class AttentionDispersionSignal(DifficultySignal):
                         sent_token_count[s_idx] += 1
                         break
 
-            sent_total_dist = self._normalize(sent_sum)
+            sent_total_dist = self.qa_model.normalize(sent_sum)
             sent_avg_raw = [s / c if c else 0.0 for s, c in zip(sent_sum, sent_token_count)]
-            sent_avg_dist = self._normalize(sent_avg_raw)
+            sent_avg_dist = self.qa_model.normalize(sent_avg_raw)
             all_layer_sent_total_dists.append(sent_total_dist)
             all_layer_sent_avg_dists.append(sent_avg_dist)
             self._add_sentence_features(features, sent_total_dist, sent_avg_dist, f"layer{layer_idx}")
@@ -184,7 +142,7 @@ class AttentionDispersionSignal(DifficultySignal):
         # all-layers-averaged distributions, as one more candidate row
         def _macro_avg(dists: list[list[float]], length: int) -> list[float]:
             avg = [sum(d[i] for d in dists) / num_layers for i in range(length)]
-            return self._normalize(avg)
+            return self.qa_model.normalize(avg)
 
         token_alllayers = _macro_avg(all_layer_token_dists, len(all_layer_token_dists[0]))
         self._add_token_features(features, token_alllayers, "alllayers")
@@ -196,113 +154,22 @@ class AttentionDispersionSignal(DifficultySignal):
         return features
 
     def get_sentence_distribution(self, passage: str, question: str, layer: int = 11) -> dict:
-        """For visualization/manual review: returns the actual per-sentence
-        text alongside the sentence-total attention distribution and its
-        entropy, at one specific layer -- not the full multi-layer sweep
-        compute() does. Used by question_difficulty/notebooks/ for eyeballing
-        real examples, not for the production feature-extraction pipeline."""
-        enc = self.tokenizer(
-            question, passage,
-            max_length=self.max_length, truncation="only_second",
-            return_offsets_mapping=True, return_tensors="pt",
-        )
-        offsets = enc.pop("offset_mapping")[0].tolist()
-        sequence_ids = enc.sequence_ids(0)
-
-        with self.torch.no_grad():
-            out = self.model(**enc, output_attentions=True)
-
-        sent_spans = self._sentence_spans(passage)
-        sentence_texts = [passage[s:e].strip() for s, e in sent_spans]
-
-        question_positions = [i for i, s in enumerate(sequence_ids) if s == 0]
-        passage_positions = [i for i, s in enumerate(sequence_ids) if s == 1]
-        if not question_positions or not passage_positions:
-            return {"sentences": sentence_texts, "distribution": [], "entropy": None}
-
-        avg_heads = out.attentions[layer][0].mean(dim=0)
-        sub = avg_heads[question_positions][:, passage_positions]
-        per_passage_token = sub.mean(dim=0).tolist()
-
-        token_dist = self._normalize(per_passage_token)
-
-        sent_sum = [0.0] * len(sent_spans)
-        for tok_idx, pos in enumerate(passage_positions):
-            char_start, char_end = offsets[pos]
-            if char_start == char_end:
-                continue
-            for s_idx, (s_start, s_end) in enumerate(sent_spans):
-                if s_start <= char_start < s_end:
-                    sent_sum[s_idx] += per_passage_token[tok_idx]
-                    break
-
-        dist = self._normalize(sent_sum)
-        return {
-            "sentences": sentence_texts,
-            "distribution": dist,
-            "entropy": self._entropy(dist),
-            "entropy_norm": self._normalized_entropy(dist),
-            "num_tokens": len(passage_positions),
-            "tok_entropy": self._entropy(token_dist),
-            "tok_entropy_norm": self._normalized_entropy(token_dist),
-            "layer": layer,
-        }
+        """For visualization/manual review: delegates to
+        ExtractiveQAModel.get_attention_distribution -- one layer, not the
+        full multi-layer sweep compute() does. Used by
+        question_difficulty/notebooks/ for eyeballing real examples, not
+        for the production feature-extraction pipeline."""
+        return self.qa_model.get_attention_distribution(passage, question, layer=layer)
 
     def get_all_layers_distribution(self, passage: str, question: str) -> dict:
-        """Same as get_sentence_distribution, but for EVERY layer in one
-        forward pass (avoids 12x redundant passes from calling
-        get_sentence_distribution per layer). Used for the "compare all
+        """Delegates to ExtractiveQAModel.get_all_layers_attention_distribution
+        -- every layer in one forward pass. Used for the "compare all
         layers" view in question_difficulty/notebooks/."""
-        enc = self.tokenizer(
-            question, passage,
-            max_length=self.max_length, truncation="only_second",
-            return_offsets_mapping=True, return_tensors="pt",
-        )
-        offsets = enc.pop("offset_mapping")[0].tolist()
-        sequence_ids = enc.sequence_ids(0)
-
-        with self.torch.no_grad():
-            out = self.model(**enc, output_attentions=True)
-
-        sent_spans = self._sentence_spans(passage)
-        sentence_texts = [passage[s:e].strip() for s, e in sent_spans]
-
-        question_positions = [i for i, s in enumerate(sequence_ids) if s == 0]
-        passage_positions = [i for i, s in enumerate(sequence_ids) if s == 1]
-        if not question_positions or not passage_positions:
-            return {"sentences": sentence_texts, "distributions": [], "entropies": []}
-
-        distributions, entropies, entropies_norm = [], [], []
-        for layer_attn in out.attentions:
-            avg_heads = layer_attn[0].mean(dim=0)
-            sub = avg_heads[question_positions][:, passage_positions]
-            per_passage_token = sub.mean(dim=0).tolist()
-
-            sent_sum = [0.0] * len(sent_spans)
-            for tok_idx, pos in enumerate(passage_positions):
-                char_start, char_end = offsets[pos]
-                if char_start == char_end:
-                    continue
-                for s_idx, (s_start, s_end) in enumerate(sent_spans):
-                    if s_start <= char_start < s_end:
-                        sent_sum[s_idx] += per_passage_token[tok_idx]
-                        break
-
-            dist = self._normalize(sent_sum)
-            distributions.append(dist)
-            entropies.append(self._entropy(dist))
-            entropies_norm.append(self._normalized_entropy(dist))
-
-        return {
-            "sentences": sentence_texts,
-            "distributions": distributions,
-            "entropies": entropies,
-            "entropies_norm": entropies_norm,
-        }
+        return self.qa_model.get_all_layers_attention_distribution(passage, question)
 
     def _add_token_features(self, features: dict[str, float], dist: list[float], suffix: str) -> None:
-        features[f"tok_entropy_{suffix}"] = self._entropy(dist)
-        features[f"tok_entropy_norm_{suffix}"] = self._normalized_entropy(dist)
+        features[f"tok_entropy_{suffix}"] = self.qa_model.entropy(dist)
+        features[f"tok_entropy_norm_{suffix}"] = self.qa_model.normalized_entropy(dist)
         features[f"tok_max_{suffix}"] = max(dist)
         features[f"tok_min_{suffix}"] = min(dist)
         for pct in self.TOP_PCTS:
@@ -310,10 +177,10 @@ class AttentionDispersionSignal(DifficultySignal):
 
     def _add_sentence_features(self, features: dict[str, float], total_dist: list[float],
                                 avg_dist: list[float], suffix: str) -> None:
-        features[f"sent_total_entropy_{suffix}"] = self._entropy(total_dist)
-        features[f"sent_avg_entropy_{suffix}"] = self._entropy(avg_dist)
-        features[f"sent_total_entropy_norm_{suffix}"] = self._normalized_entropy(total_dist)
-        features[f"sent_avg_entropy_norm_{suffix}"] = self._normalized_entropy(avg_dist)
+        features[f"sent_total_entropy_{suffix}"] = self.qa_model.entropy(total_dist)
+        features[f"sent_avg_entropy_{suffix}"] = self.qa_model.entropy(avg_dist)
+        features[f"sent_total_entropy_norm_{suffix}"] = self.qa_model.normalized_entropy(total_dist)
+        features[f"sent_avg_entropy_norm_{suffix}"] = self.qa_model.normalized_entropy(avg_dist)
         features[f"sent_total_max_{suffix}"] = max(total_dist)
         features[f"sent_avg_max_{suffix}"] = max(avg_dist)
         features[f"sent_total_min_{suffix}"] = min(total_dist)
