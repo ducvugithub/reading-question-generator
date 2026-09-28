@@ -1,0 +1,92 @@
+{
+  "r2870_3_Middle": {
+    "difficulty": -0.962830360728956,
+    "answers": {
+      "extractive": {
+        "letter": "A",
+        "confidence": null,
+        "is_correct": true
+      },
+      "qwen05_fp16": {
+        "letter": "A",
+        "confidence": 0.8852061331272125,
+        "is_correct": true
+      },
+      "falcon1b_fp16": {
+        "letter": "A",
+        "confidence": 0.9970977902412415,
+        "is_correct": true
+      },
+      "qwen15_fp16": {
+        "letter": "A",
+        "confidence": 0.8470497280359268,
+        "is_correct": true
+      },
+      "haiku": {
+        "letter": "A",
+        "confidence": null,
+        "is_correct": true
+      }
+    }
+  },
+  "os18_5_1_Ele": {
+    "difficulty": -1.1351573297910056,
+    "answers": {
+      "extractive": {
+        "letter": "A",
+        "confidence": null,
+        "is_correct": true
+      },
+      "qwen05_fp16": {
+        "letter": "C",
+        "confidence": 0.9584970474243164,
+        "is_correct": false
+      },
+      "falcon1b_fp16": {
+        "letter": "C",
+        "confidence": 0.9518166333436966,
+        "is_correct": false
+      },
+      "qwen15_fp16": {
+        "letter": "C",
+        "confidence": 0.9340828508138657,
+        "is_correct": false
+      },
+      "haiku": {
+        "letter": "C",
+        "confidence": null,
+        "is_correct": false
+      }
+    }
+  },
+  "r1029_2_Middle": {
+    "difficulty": -1.0728529224328465,
+    "answers": {
+      "extractive": {
+        "letter": "A",
+        "confidence": null,
+        "is_correct": true
+      },
+      "qwen05_fp16": {
+        "letter": "C",
+        "confidence": 0.7998270988464355,
+        "is_correct": false
+      },
+      "falcon1b_fp16": {
+        "letter": "A",
+        "confidence": 0.9998543560504913,
+        "is_correct": true
+      },
+      "qwen15_fp16": {
+        "letter": "A",
+        "confidence": 0.9810193628072739,
+        "is_correct": true
+      },
+      "haiku": {
+        "letter": "A",
+        "confidence": null,
+        "is_correct": true
+      }
+    }
+  }
+}

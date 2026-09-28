@@ -2,18 +2,23 @@
 """
 Small, human-inspectable sample: N *captured-correct* passages per difficulty
 level per dataset, scored by one QA model, with sentence- and token-level
-attention entropy (raw + length-normalized). Each passage is grouped with
-EVERY question the source dataset actually has for it (not just one), so you
-can compare entropy across multiple real questions on the same fixed text.
+attention entropy PLUS two entropy alternatives -- participation ratio
+(effective outcome count, robust to a noisy attention tail unlike entropy)
+and top-K cumulative mass (K=1/2/3 for sentences, K=5/10/15 for tokens, since
+tokens are a much finer-grained unit). Each passage is grouped with EVERY
+question the source dataset actually has for it (not just one), so you can
+compare these metrics across multiple real questions on the same fixed text.
 
 Unlike a plain random sample, this oversamples each group and scores
 candidates on the fly, keeping only passages where at least one of their
 questions passes the `captured_correct` gate (f1 >= F1_THRESH OR
 (recall_overlap >= RO_THRESH AND length-guarded)), until N_PER_GROUP such
 passages are collected (or the candidate pool for that group is exhausted).
-The point: entropy is only a valid difficulty signal for questions the model
-actually got right, so this is the sample to look at when checking whether
-entropy tracks difficulty at all.
+The point: these metrics are only a valid difficulty signal for questions
+the model actually got right -- and even then, the two summary tables are
+just a pointer to where to look; the difficulty label is passage-level
+(RACE, OneStopQA), not per-question, so manual review of the full per-
+question detail below the tables is still required, not optional.
 
 Difficulty levels:
   RACE-middle -> EASY, RACE-high -> MEDIUM, RACE-C -> HARD
@@ -46,8 +51,10 @@ _MC_PATTERNS = ("which of the following", "which one of the following", "which o
 LENGTH_GUARD_CAP = 0.30
 F1_THRESH = 0.5
 RO_THRESH = 0.8
-TOPIC_QUESTION = "What is the main topic of the passage?"
 MAX_QUESTIONS_PER_PASSAGE = 5  # keep the report readable for passages with many questions
+SENT_TOPKS = (1, 2, 3)      # "top-k sentences" -- a meaningful unit at sentence granularity
+TOK_TOPKS = (5, 10, 15)     # tokens are much finer-grained, so use bigger k's
+TOPIC_QUESTION = "What is the main topic of the passage?"
 
 
 def _is_mc(question: str) -> bool:
@@ -149,25 +156,22 @@ def iter_squad() -> Iterator[dict]:
         yield {"source": "SQuAD", "level": "N/A", **cand}
 
 
-def _locate_sentence(passage: str, span_text: str, sent_spans: list[tuple[int, int]]) -> int | None:
-    """Which sentence (by index into sent_spans) contains the first
-    occurrence of span_text in passage, or None if not found."""
-    idx = passage.find(span_text)
-    if idx < 0:
-        idx = passage.lower().find(span_text.lower())
-    if idx < 0:
-        return None
-    for i, (s, e) in enumerate(sent_spans):
-        if s <= idx < e:
-            return i
-    return None
+def _shape_metrics(dist: list[float], qa_model: ExtractiveQAModel, topks: tuple[int, ...],
+                    prefix: str) -> dict:
+    """Attention-shape metrics beyond entropy, prefixed (e.g. "sent_"/"tok_"):
+    top-k cumulative mass for each k in topks, plus participation ratio
+    (effective outcome count, noise-floor-robust unlike entropy)."""
+    sorted_dist = sorted(dist, reverse=True)
+    out = {f"{prefix}top{k}_mass": (sum(sorted_dist[:k]) if sorted_dist else None) for k in topks}
+    out[f"{prefix}pr_norm"] = qa_model.normalized_participation_ratio(dist)
+    return out
 
 
 def score_passage(cand: dict, qa_model: ExtractiveQAModel, layer: int,
                    qa_evaluator: QAEvaluator) -> dict:
-    """Scores every (question, answer) pair attached to this passage, plus
-    the fixed topic-probe question once. `any_captured` is True if at least
-    one real question passes the captured_correct gate."""
+    """Scores every (question, answer) pair attached to this passage.
+    `any_captured` is True if at least one real question passes the
+    captured_correct gate."""
     passage = cand["passage"]
     scored_questions = []
     any_captured = False
@@ -179,29 +183,26 @@ def score_passage(cand: dict, qa_model: ExtractiveQAModel, layer: int,
         captured = f1 >= F1_THRESH or (recall_overlap >= RO_THRESH and pred_frac <= LENGTH_GUARD_CAP)
         dist = qa_model.get_attention_distribution(passage, question, layer=layer)
 
-        sent_spans = qa_model.sentence_spans(passage)
-        ans_idx = _locate_sentence(passage, pred, sent_spans) if pred else None
-        if ans_idx is not None and dist["distribution"]:
-            ans_share = dist["distribution"][ans_idx]
-            ans_rank = 1 + sum(1 for d in dist["distribution"] if d > ans_share)
-        else:
-            ans_share, ans_rank = None, None
-
         scored_questions.append({
             "question": question, "answer": answer, "pred": pred, "conf": conf, "f1": f1,
             "recall_overlap": recall_overlap, "pred_frac_of_passage": pred_frac,
-            "captured_correct": captured, "sent_entropy": dist["entropy"],
-            "sent_entropy_norm": dist["entropy_norm"], "tok_entropy": dist["tok_entropy"],
-            "tok_entropy_norm": dist["tok_entropy_norm"], "num_sentences": len(dist["sentences"]),
-            "answer_sentence_attention_share": ans_share, "answer_sentence_rank": ans_rank,
+            "captured_correct": captured,
+            "num_sentences": len(dist["sentences"]), "num_tokens": dist["num_tokens"],
+            "sent_entropy_norm": dist["entropy_norm"], "tok_entropy_norm": dist["tok_entropy_norm"],
+            **_shape_metrics(dist["distribution"], qa_model, SENT_TOPKS, "sent_"),
+            **_shape_metrics(dist["token_distribution"], qa_model, TOK_TOPKS, "tok_"),
         })
         any_captured = any_captured or captured
 
-    pred, conf = qa_model.predict_answer(passage, TOPIC_QUESTION)
-    dist = qa_model.get_attention_distribution(passage, TOPIC_QUESTION, layer=layer)
-    probe = {"pred": pred, "conf": conf, "sent_entropy": dist["entropy"],
-             "sent_entropy_norm": dist["entropy_norm"], "tok_entropy": dist["tok_entropy"],
-             "tok_entropy_norm": dist["tok_entropy_norm"]}
+    probe_pred, probe_conf = qa_model.predict_answer(passage, TOPIC_QUESTION)
+    probe_dist = qa_model.get_attention_distribution(passage, TOPIC_QUESTION, layer=layer)
+    probe = {
+        "question": TOPIC_QUESTION, "pred": probe_pred, "conf": probe_conf,
+        "num_sentences": len(probe_dist["sentences"]), "num_tokens": probe_dist["num_tokens"],
+        "sent_entropy_norm": probe_dist["entropy_norm"], "tok_entropy_norm": probe_dist["tok_entropy_norm"],
+        "sent_pr_norm": qa_model.normalized_participation_ratio(probe_dist["distribution"]),
+        "tok_pr_norm": qa_model.normalized_participation_ratio(probe_dist["token_distribution"]),
+    }
 
     return {"source": cand["source"], "level": cand["level"], "passage": passage,
             "questions": scored_questions, "any_captured": any_captured, "probe": probe}
@@ -242,26 +243,32 @@ def build_groups() -> list[tuple[str, str, Iterator[dict]]]:
     ]
 
 
-def _combined(entry: dict) -> float:
-    """Simple average of sent_entropy_norm and tok_entropy_norm."""
-    return (entry["sent_entropy_norm"] + entry["tok_entropy_norm"]) / 2
+def _avg(entries: list[dict], key: str) -> float:
+    return sum(e[key] for e in entries) / len(entries)
+
+
+def _esc(s) -> str:
+    """Escape "|" so arbitrary text is safe to drop into a markdown table cell."""
+    return str(s).replace("|", "/")
 
 
 def render_report(model_name: str, layer: int, n_per_group: int, max_candidates: int,
                    groups: dict[tuple[str, str], list[dict]],
-                   tried_counts: dict[tuple[str, str], int],
-                   passage_detail_group: tuple[str, str] = ("RACE-C", "HARD")) -> str:
-    header = [f"# Entropy on captured-correct samples only: `{model_name}`", "",
+                   tried_counts: dict[tuple[str, str], int]) -> str:
+    header = [f"# Entropy and attention-shape metrics on captured-correct samples: `{model_name}`", "",
               f"layer={layer}, target {n_per_group} captured_correct passages per group "
               f"(up to {max_candidates} candidates tried per group, up to "
               f"{MAX_QUESTIONS_PER_PASSAGE} questions shown per passage). "
               f"`captured_correct` = f1>={F1_THRESH} OR (recall_overlap>={RO_THRESH} "
               f"AND pred<= {int(LENGTH_GUARD_CAP*100)}% of passage). "
               "A passage is included if at least one of its real questions passes the gate -- "
-              "entropy is only a trustworthy difficulty signal on rows where captured=Y. "
-              "`combined` is the simple average of sent_entropy_norm and tok_entropy_norm. "
-              f"Each passage also gets a fixed topic-probe question (\"{TOPIC_QUESTION}\") for "
-              "comparison -- it has no gold answer, so no f1/captured_correct for it.",
+              "these metrics are only a trustworthy difficulty signal on captured_correct=Y rows. "
+              "`pr_norm` (participation ratio, normalized) is an alternative to entropy_norm that's "
+              "robust to a noisy attention tail -- see the two summary tables below. "
+              "`topK_mass` = cumulative attention mass on the K most-attended sentences/tokens. "
+              "These are aggregate numbers only, meant to point you at which passages/questions to "
+              "read manually below -- they don't replace manual review, since the EASY/MEDIUM/HARD "
+              "label is passage-level (RACE, OneStopQA), not per-question.",
               ""]
 
     order = [("RACE-middle", "EASY"), ("RACE-high", "MEDIUM"), ("RACE-C", "HARD"),
@@ -270,7 +277,6 @@ def render_report(model_name: str, layer: int, n_per_group: int, max_candidates:
 
     detail_lines = []
     summary_rows = []
-    passage_detail_rows = []
     for key in order:
         items = groups.get(key, [])
         source, level = key
@@ -279,104 +285,66 @@ def render_report(model_name: str, layer: int, n_per_group: int, max_candidates:
                           f"{len(items)}/{n_per_group} captured (tried {tried} candidates)", ""]
 
         group_captured_entries: list[dict] = []
-        group_probe_entries: list[dict] = []
         for i, item in enumerate(items, 1):
             captured_questions = [q for q in item["questions"] if q["captured_correct"]]
-            detail_lines += [f"### Passage {i}", "", "**Passage:**", "", f"> {item['passage']}", "",
-                              f"({len(captured_questions)}/{len(item['questions'])} of this passage's "
-                              "questions were captured_correct -- only those are shown below)", ""]
-            for j, q in enumerate(captured_questions, 1):
-                share = q["answer_sentence_attention_share"]
-                rank = q["answer_sentence_rank"]
-                loc_str = (f"share={share:.3f}, rank={rank}/{q['num_sentences']}"
-                          if share is not None else "answer sentence not located")
-                detail_lines += [
-                    f"**Question {j}:** {q['question']}", "",
-                    f"**Gold answer:** {q['answer']}", "",
-                    f"**Predicted answer:** {q['pred']} (f1={q['f1']:.2f}, conf={q['conf']:.3f})", "",
-                    f"**Entropy:** sent_entropy_norm={q['sent_entropy_norm']:.3f}, "
-                    f"tok_entropy_norm={q['tok_entropy_norm']:.3f}, combined={_combined(q):.3f} "
-                    f"(sent_entropy={q['sent_entropy']:.3f}, tok_entropy={q['tok_entropy']:.3f}, "
-                    f"num_sentences={q['num_sentences']})",
-                    "",
-                    f"**Answer-sentence attention:** {loc_str} -- how much attention mass landed on "
-                    "the sentence containing the model's own predicted answer, and its rank among "
-                    "all sentences (1 = most-attended sentence IS the answer sentence).",
-                    "",
-                ]
-                group_captured_entries.append(q)
             probe = item["probe"]
-            detail_lines += [
-                f"**Probe question:** {TOPIC_QUESTION}", "",
-                f"**Probe predicted answer:** {probe['pred']} (conf={probe['conf']:.3f})", "",
-                f"**Probe entropy:** sent_entropy_norm={probe['sent_entropy_norm']:.3f}, "
-                f"tok_entropy_norm={probe['tok_entropy_norm']:.3f}, combined={_combined(probe):.3f}",
-                "",
-            ]
-            group_probe_entries.append(probe)
-
-            if captured_questions and key == passage_detail_group:
-                p_sent = sum(q["sent_entropy_norm"] for q in captured_questions) / len(captured_questions)
-                p_tok = sum(q["tok_entropy_norm"] for q in captured_questions) / len(captured_questions)
-                p_combined = sum(_combined(q) for q in captured_questions) / len(captured_questions)
-                located = [q for q in captured_questions if q["answer_sentence_attention_share"] is not None]
-                p_share = (sum(q["answer_sentence_attention_share"] for q in located) / len(located)
-                          if located else None)
-                p_rank = sum(q["answer_sentence_rank"] for q in located) / len(located) if located else None
-                snippet = item["passage"][:70].replace("|", "/") + "..."
-                passage_detail_rows.append((i, snippet, len(captured_questions), len(item["questions"]),
-                                            p_sent, p_tok, p_combined, _combined(probe), p_share, p_rank))
+            detail_lines += [f"### Passage {i}", "", "**Passage:**", "", f"> {item['passage']}", "",
+                              f"{probe['num_sentences']} sentences, {probe['num_tokens']} tokens. "
+                              f"{len(captured_questions)}/{len(item['questions'])} of this passage's "
+                              "questions were captured_correct -- only those are shown below, plus a "
+                              "fixed topic-probe question for comparison (no gold answer, so no f1).", ""]
+            detail_lines += ["| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | "
+                             "tok_entropy_norm | tok_pr_norm |",
+                             "|---|---|---|---|---|---|---|---|---|"]
+            for j, q in enumerate(captured_questions, 1):
+                detail_lines.append(
+                    f"| {j} | {_esc(q['question'])} | {_esc(q['answer'])} | {_esc(q['pred'])} | "
+                    f"{q['f1']:.2f} | {q['sent_entropy_norm']:.3f} | {q['sent_pr_norm']:.3f} | "
+                    f"{q['tok_entropy_norm']:.3f} | {q['tok_pr_norm']:.3f} |")
+            detail_lines.append(
+                f"| probe | {_esc(probe['question'])} | -- | {_esc(probe['pred'])} | -- | "
+                f"{probe['sent_entropy_norm']:.3f} | {probe['sent_pr_norm']:.3f} | "
+                f"{probe['tok_entropy_norm']:.3f} | {probe['tok_pr_norm']:.3f} |")
+            detail_lines.append("")
+            group_captured_entries.extend(captured_questions)
 
         if group_captured_entries:
-            avg_sent = sum(q["sent_entropy_norm"] for q in group_captured_entries) / len(group_captured_entries)
-            avg_tok = sum(q["tok_entropy_norm"] for q in group_captured_entries) / len(group_captured_entries)
-            avg_combined = sum(_combined(q) for q in group_captured_entries) / len(group_captured_entries)
-            avg_probe_combined = sum(_combined(p) for p in group_probe_entries) / len(group_probe_entries)
-            located = [q for q in group_captured_entries if q["answer_sentence_attention_share"] is not None]
-            avg_share = sum(q["answer_sentence_attention_share"] for q in located) / len(located) if located else None
-            avg_rank = sum(q["answer_sentence_rank"] for q in located) / len(located) if located else None
-            share_str = f"{avg_share:.3f}" if avg_share is not None else "n/a"
-            rank_str = f"{avg_rank:.2f}" if avg_rank is not None else "n/a"
-            detail_lines.append(f"Avg over {len(group_captured_entries)} captured=Y question(s): "
-                                f"sent_entropy_norm={avg_sent:.3f}, tok_entropy_norm={avg_tok:.3f}, "
-                                f"combined={avg_combined:.3f} (probe combined avg={avg_probe_combined:.3f}); "
-                                f"answer_sentence_attention_share={share_str}, answer_sentence_rank={rank_str} "
-                                f"(n_located={len(located)})")
-            summary_rows.append((source, level, avg_sent, avg_tok, avg_combined,
-                                 avg_probe_combined, avg_share, avg_rank, len(group_captured_entries), len(items)))
+            e = group_captured_entries
+            detail_lines.append(
+                f"Avg over {len(e)} captured=Y question(s) -- "
+                f"sentence: entropy_norm={_avg(e,'sent_entropy_norm'):.3f}, pr_norm={_avg(e,'sent_pr_norm'):.3f}, "
+                f"top1={_avg(e,'sent_top1_mass'):.3f}, top2={_avg(e,'sent_top2_mass'):.3f}, "
+                f"top3={_avg(e,'sent_top3_mass'):.3f}; token: entropy_norm={_avg(e,'tok_entropy_norm'):.3f}, "
+                f"pr_norm={_avg(e,'tok_pr_norm'):.3f}, top5={_avg(e,'tok_top5_mass'):.3f}, "
+                f"top10={_avg(e,'tok_top10_mass'):.3f}, top15={_avg(e,'tok_top15_mass'):.3f}")
+            summary_rows.append((source, level, e, len(items)))
         else:
             detail_lines.append("No captured_correct rows found for this group.")
         detail_lines.append("")
 
-    def _fmt(v, spec=".3f"):
-        return format(v, spec) if v is not None else "n/a"
+    sent_table = ["## Summary (sentence-level)", "",
+                  "| source | level | entropy_norm | pr_norm | top1_mass | top2_mass | top3_mass | "
+                  "n_questions | n_passages |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+    for source, level, e, n_p in summary_rows:
+        sent_table.append(f"| {source} | {level} | {_avg(e,'sent_entropy_norm'):.3f} | "
+                          f"{_avg(e,'sent_pr_norm'):.3f} | {_avg(e,'sent_top1_mass'):.3f} | "
+                          f"{_avg(e,'sent_top2_mass'):.3f} | {_avg(e,'sent_top3_mass'):.3f} | "
+                          f"{len(e)} | {n_p} |")
+    sent_table.append("")
 
-    summary_table = ["## Summary: avg entropy by group (captured_correct questions only)", "",
-                      "| source | level | sent_entropy_norm | tok_entropy_norm | combined | "
-                      "probe combined | ans_sentence_share | ans_sentence_rank | n_questions | n_passages |",
-                      "|---|---|---|---|---|---|---|---|---|---|"]
-    for source, level, avg_sent, avg_tok, avg_combined, avg_probe_combined, avg_share, avg_rank, n_q, n_p in summary_rows:
-        summary_table.append(f"| {source} | {level} | {avg_sent:.3f} | {avg_tok:.3f} | {avg_combined:.3f} | "
-                             f"{avg_probe_combined:.3f} | {_fmt(avg_share)} | {_fmt(avg_rank, '.2f')} | "
-                             f"{n_q} | {n_p} |")
-    summary_table.append("")
+    tok_table = ["## Summary (token-level)", "",
+                 "| source | level | entropy_norm | pr_norm | top5_mass | top10_mass | top15_mass | "
+                 "n_questions | n_passages |",
+                 "|---|---|---|---|---|---|---|---|---|"]
+    for source, level, e, n_p in summary_rows:
+        tok_table.append(f"| {source} | {level} | {_avg(e,'tok_entropy_norm'):.3f} | "
+                         f"{_avg(e,'tok_pr_norm'):.3f} | {_avg(e,'tok_top5_mass'):.3f} | "
+                         f"{_avg(e,'tok_top10_mass'):.3f} | {_avg(e,'tok_top15_mass'):.3f} | "
+                         f"{len(e)} | {n_p} |")
+    tok_table.append("")
 
-    pd_source, pd_level = passage_detail_group
-    passage_table = [f"## Per-passage detail: {pd_source} / {pd_level} "
-                      "(avg over each passage's captured_correct questions)", "",
-                      "`ans_sentence_share` = avg fraction of attention mass on the sentence containing "
-                      "the model's own predicted answer; `ans_sentence_rank` = avg rank of that sentence "
-                      "by attention mass (1 = most-attended sentence IS the answer sentence -- lower is "
-                      "\"more correctly focused\").", "",
-                      "| passage | snippet | n_captured/n_total | sent_entropy_norm | "
-                      "tok_entropy_norm | combined | probe combined | ans_sentence_share | ans_sentence_rank |",
-                      "|---|---|---|---|---|---|---|---|---|"]
-    for i, snippet, n_cap, n_tot, p_sent, p_tok, p_combined, p_probe, p_share, p_rank in passage_detail_rows:
-        passage_table.append(f"| {i} | {snippet} | {n_cap}/{n_tot} | {p_sent:.3f} | {p_tok:.3f} | "
-                             f"{p_combined:.3f} | {p_probe:.3f} | {_fmt(p_share)} | {_fmt(p_rank, '.2f')} |")
-    passage_table.append("")
-
-    return "\n".join(header + summary_table + passage_table + detail_lines) + "\n"
+    return "\n".join(header + sent_table + tok_table + detail_lines) + "\n"
 
 
 def main() -> None:

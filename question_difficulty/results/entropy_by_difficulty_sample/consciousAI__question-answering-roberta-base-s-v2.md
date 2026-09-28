@@ -1,31 +1,30 @@
-# Entropy on captured-correct samples only: `consciousAI/question-answering-roberta-base-s-v2`
+# Entropy and attention-shape metrics on captured-correct samples: `consciousAI/question-answering-roberta-base-s-v2`
 
-layer=11, target 6 captured_correct passages per group (up to 400 candidates tried per group, up to 5 questions shown per passage). `captured_correct` = f1>=0.5 OR (recall_overlap>=0.8 AND pred<= 30% of passage). A passage is included if at least one of its real questions passes the gate -- entropy is only a trustworthy difficulty signal on rows where captured=Y. `combined` is the simple average of sent_entropy_norm and tok_entropy_norm. Each passage also gets a fixed topic-probe question ("What is the main topic of the passage?") for comparison -- it has no gold answer, so no f1/captured_correct for it.
+layer=11, target 6 captured_correct passages per group (up to 400 candidates tried per group, up to 5 questions shown per passage). `captured_correct` = f1>=0.5 OR (recall_overlap>=0.8 AND pred<= 30% of passage). A passage is included if at least one of its real questions passes the gate -- these metrics are only a trustworthy difficulty signal on captured_correct=Y rows. `pr_norm` (participation ratio, normalized) is an alternative to entropy_norm that's robust to a noisy attention tail -- see the two summary tables below. `topK_mass` = cumulative attention mass on the K most-attended sentences/tokens. These are aggregate numbers only, meant to point you at which passages/questions to read manually below -- they don't replace manual review, since the EASY/MEDIUM/HARD label is passage-level (RACE, OneStopQA), not per-question.
 
-## Summary: avg entropy by group (captured_correct questions only)
+## Summary (sentence-level)
 
-| source | level | sent_entropy_norm | tok_entropy_norm | combined | probe combined | ans_sentence_share | ans_sentence_rank | n_questions | n_passages |
-|---|---|---|---|---|---|---|---|---|---|
-| RACE-middle | EASY | 0.816 | 0.641 | 0.728 | 0.739 | 0.083 | 7.62 | 8 | 6 |
-| RACE-high | MEDIUM | 0.870 | 0.661 | 0.766 | 0.759 | 0.081 | 7.33 | 6 | 6 |
-| RACE-C | HARD | 0.858 | 0.657 | 0.757 | 0.742 | 0.143 | 3.14 | 7 | 6 |
-| OneStopQA | EASY | 0.884 | 0.696 | 0.790 | 0.700 | 0.182 | 3.67 | 6 | 6 |
-| OneStopQA | MEDIUM | 0.830 | 0.606 | 0.718 | 0.651 | 0.297 | 1.67 | 6 | 6 |
-| OneStopQA | HARD | 0.852 | 0.656 | 0.754 | 0.700 | 0.138 | 4.00 | 7 | 6 |
-| SQuAD | N/A | 0.884 | 0.621 | 0.753 | 0.674 | 0.230 | 3.00 | 23 | 6 |
-
-## Per-passage detail: RACE-C / HARD (avg over each passage's captured_correct questions)
-
-`ans_sentence_share` = avg fraction of attention mass on the sentence containing the model's own predicted answer; `ans_sentence_rank` = avg rank of that sentence by attention mass (1 = most-attended sentence IS the answer sentence -- lower is "more correctly focused").
-
-| passage | snippet | n_captured/n_total | sent_entropy_norm | tok_entropy_norm | combined | probe combined | ans_sentence_share | ans_sentence_rank |
+| source | level | entropy_norm | pr_norm | top1_mass | top2_mass | top3_mass | n_questions | n_passages |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Vitamins are important to our health.Difierent vitamins are found in d... | 1/4 | 0.700 | 0.530 | 0.615 | 0.657 | 0.045 | 8.00 |
-| 2 | Anne Whitney, a sophomore at Colorado State University, first had a pr... | 1/5 | 0.757 | 0.603 | 0.680 | 0.708 | 0.219 | 1.00 |
-| 3 | Health Minister Nicola Roxon's latest proposal that patients be alloca... | 1/3 | 0.812 | 0.715 | 0.763 | 0.701 | 0.166 | 1.00 |
-| 4 | The English policeman has several nicknames but the most frequently us... | 1/4 | 0.924 | 0.668 | 0.796 | 0.768 | 0.047 | 9.00 |
-| 5 | As supplier of most of the food we eat and of raw materials for many i... | 2/5 | 0.939 | 0.685 | 0.812 | 0.823 | 0.185 | 1.00 |
-| 6 | The biggest safety threat facing airlines today may not be a terrorist... | 1/5 | 0.932 | 0.714 | 0.823 | 0.797 | 0.152 | 1.00 |
+| RACE-middle | EASY | 0.816 | 0.492 | 0.181 | 0.347 | 0.506 | 8 | 6 |
+| RACE-high | MEDIUM | 0.870 | 0.597 | 0.175 | 0.319 | 0.426 | 6 | 6 |
+| RACE-C | HARD | 0.858 | 0.575 | 0.166 | 0.282 | 0.392 | 7 | 6 |
+| OneStopQA | EASY | 0.884 | 0.693 | 0.286 | 0.498 | 0.685 | 6 | 6 |
+| OneStopQA | MEDIUM | 0.830 | 0.627 | 0.351 | 0.623 | 0.861 | 6 | 6 |
+| OneStopQA | HARD | 0.852 | 0.651 | 0.269 | 0.493 | 0.686 | 7 | 6 |
+| SQuAD | N/A | 0.884 | 0.720 | 0.302 | 0.548 | 0.734 | 23 | 6 |
+
+## Summary (token-level)
+
+| source | level | entropy_norm | pr_norm | top5_mass | top10_mass | top15_mass | n_questions | n_passages |
+|---|---|---|---|---|---|---|---|---|
+| RACE-middle | EASY | 0.641 | 0.061 | 0.542 | 0.687 | 0.726 | 8 | 6 |
+| RACE-high | MEDIUM | 0.661 | 0.055 | 0.399 | 0.643 | 0.685 | 6 | 6 |
+| RACE-C | HARD | 0.657 | 0.054 | 0.422 | 0.634 | 0.701 | 7 | 6 |
+| OneStopQA | EASY | 0.696 | 0.074 | 0.591 | 0.647 | 0.682 | 6 | 6 |
+| OneStopQA | MEDIUM | 0.606 | 0.052 | 0.682 | 0.728 | 0.761 | 6 | 6 |
+| OneStopQA | HARD | 0.656 | 0.068 | 0.585 | 0.679 | 0.718 | 7 | 6 |
+| SQuAD | N/A | 0.621 | 0.048 | 0.641 | 0.700 | 0.735 | 23 | 6 |
 
 ## RACE-middle / EASY
 
@@ -39,33 +38,13 @@ layer=11, target 6 captured_correct passages per group (up to 400 candidates tri
 At the festival you will find huhu grubs and beetles on your plate.The festival also celebrates Maori food. the food of the traditional native people of New Nealand And visitors will eat the wild food with plenty of famous West Coast beer.What's more,there are three stages at the festival,where there is live music and entertainment an day long.
 If you have the chance to travel to Hokitita during the Wild Food Festival,you should book a hotel before it begins.or you can choose to stay at local schools.A number of local schools become camping grounds over the weekend of the festival.You can also stay in Greymouth,because there are buses from Greymouth to the festival.
 
-(2/4 of this passage's questions were captured_correct -- only those are shown below)
+14 sentences, 225 tokens. 2/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** When is the Wild Food Festival held in the town of Hokitika every year?
-
-**Gold answer:** In March.
-
-**Predicted answer:** March (f1=0.67, conf=0.908)
-
-**Entropy:** sent_entropy_norm=0.798, tok_entropy_norm=0.595, combined=0.697 (sent_entropy=2.107, tok_entropy=3.225, num_sentences=14)
-
-**Answer-sentence attention:** share=0.190, rank=3/14 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** What will you find on your plate at the festival?
-
-**Gold answer:** Huhu grubs and beetles.
-
-**Predicted answer:** huhu grubs and beetles (f1=1.00, conf=0.976)
-
-**Entropy:** sent_entropy_norm=0.784, tok_entropy_norm=0.655, combined=0.719 (sent_entropy=2.068, tok_entropy=3.548, num_sentences=14)
-
-**Answer-sentence attention:** share=0.090, rank=4/14 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** food (conf=0.005)
-
-**Probe entropy:** sent_entropy_norm=0.779, tok_entropy_norm=0.588, combined=0.684
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | When is the Wild Food Festival held in the town of Hokitika every year? | In March. | March | 0.67 | 0.798 | 0.433 | 0.595 | 0.035 |
+| 2 | What will you find on your plate at the festival? | Huhu grubs and beetles. | huhu grubs and beetles | 1.00 | 0.784 | 0.394 | 0.655 | 0.039 |
+| probe | What is the main topic of the passage? | -- | food | -- | 0.779 | 0.414 | 0.588 | 0.034 |
 
 ### Passage 2
 
@@ -73,33 +52,13 @@ If you have the chance to travel to Hokitita during the Wild Food Festival,you s
 
 > George Stephenson was born in 1781 in a poor family. He had to start work when he was only eight.When George was fourteen, he became his father's helper.He spent a lot of time learning about engines .And on holidays he often made one engine to pieces and studied each piece carefully.Soon he became a very good worker though he could not read or write.He began to learn English letters when he was seventeen years old.Every day after he did twelve hours of hard work, he walked a long way to have lessons from a young school teacher. On his eighteenth birthday,he wrote his own name for the first time in his life.George invented  many things in his life.The train was the greatest one among them.Today when we take trains from one place to another,we'll think of this great man---George Stephenson.
 
-(2/5 of this passage's questions were captured_correct -- only those are shown below)
+12 sentences, 172 tokens. 2/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** He spent a lot of time learning about engines and soon he became   _  .
-
-**Gold answer:** a good worker
-
-**Predicted answer:** a very good worker (f1=0.86, conf=0.622)
-
-**Entropy:** sent_entropy_norm=0.787, tok_entropy_norm=0.574, combined=0.680 (sent_entropy=1.955, tok_entropy=2.953, num_sentences=12)
-
-**Answer-sentence attention:** share=0.070, rank=5/12 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** George Stephenson invented the   _  .
-
-**Gold answer:** the train
-
-**Predicted answer:** The train (f1=1.00, conf=0.905)
-
-**Entropy:** sent_entropy_norm=0.664, tok_entropy_norm=0.498, combined=0.581 (sent_entropy=1.649, tok_entropy=2.564, num_sentences=12)
-
-**Answer-sentence attention:** share=0.075, rank=4/12 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** engines (conf=0.520)
-
-**Probe entropy:** sent_entropy_norm=0.720, tok_entropy_norm=0.577, combined=0.649
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | He spent a lot of time learning about engines and soon he became   _  . | a good worker | a very good worker | 0.86 | 0.787 | 0.446 | 0.574 | 0.041 |
+| 2 | George Stephenson invented the   _  . | the train | The train | 1.00 | 0.664 | 0.289 | 0.498 | 0.028 |
+| probe | What is the main topic of the passage? | -- | engines | -- | 0.720 | 0.350 | 0.577 | 0.034 |
 
 ### Passage 3
 
@@ -113,23 +72,12 @@ Talk about your values. The values of your parents are probably different from t
 A good relationship with your parents can make you a better and happier person. It is worth having a try!
 ,.
 
-(1/4 of this passage's questions were captured_correct -- only those are shown below)
+29 sentences, 335 tokens. 1/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** According to the passage who have a communication problem?
-
-**Gold answer:** parents and children of all ages
-
-**Predicted answer:** parents and children of all ages (f1=1.00, conf=0.864)
-
-**Entropy:** sent_entropy_norm=0.873, tok_entropy_norm=0.757, combined=0.815 (sent_entropy=2.939, tok_entropy=4.403, num_sentences=29)
-
-**Answer-sentence attention:** share=0.001, rank=29/29 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Communication (conf=0.411)
-
-**Probe entropy:** sent_entropy_norm=0.845, tok_entropy_norm=0.702, combined=0.773
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | According to the passage who have a communication problem? | parents and children of all ages | parents and children of all ages | 1.00 | 0.873 | 0.516 | 0.757 | 0.099 |
+| probe | What is the main topic of the passage? | -- | Communication | -- | 0.845 | 0.458 | 0.702 | 0.072 |
 
 ### Passage 4
 
@@ -141,23 +89,12 @@ The bowler hat is named after London hat-makers Thomas and William Bowler. The b
 Another invention that is named after its inventor is Braille, a writing system used by blind people. French educator Louis Braille developed a new system of reading and writing after learning the cryptography of French Captain Charles Barbier during the war. The captain had come up with a code of dots on paper that allowed soldiers to communicate in the dark.
 The diesel engine is also named after its inventor----German engineer Rudolf Diesel. After a few dangerous tests, he invented a new and more efficient engine in 1892 and the engine was later called the diesel engine. The engines were widely used in buses, trucks, trains and ships, and Rudolf Diesel became a millionaire.
 
-(1/4 of this passage's questions were captured_correct -- only those are shown below)
+12 sentences, 249 tokens. 1/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Who invented the bowler hat?
-
-**Gold answer:** Thomas and William Bowler.
-
-**Predicted answer:** Thomas and William Bowler (f1=1.00, conf=0.906)
-
-**Entropy:** sent_entropy_norm=0.981, tok_entropy_norm=0.756, combined=0.868 (sent_entropy=2.438, tok_entropy=4.169, num_sentences=12)
-
-**Answer-sentence attention:** share=0.095, rank=4/12 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** making the inventions and inventors easier to be remembered (conf=0.065)
-
-**Probe entropy:** sent_entropy_norm=0.936, tok_entropy_norm=0.663, combined=0.800
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Who invented the bowler hat? | Thomas and William Bowler. | Thomas and William Bowler | 1.00 | 0.981 | 0.919 | 0.756 | 0.105 |
+| probe | What is the main topic of the passage? | -- | making the inventions and inventors easier to be remembered | -- | 0.936 | 0.785 | 0.663 | 0.064 |
 
 ### Passage 5
 
@@ -170,23 +107,12 @@ Many animals are good at finding their way home. People usually say that dogs an
 But that doesn't explain how Vivien found her way back. Hurricane Sandy blew away the normal smells of home.
 "I wish she could talk," said her owner.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+21 sentences, 259 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** From the passage we know Sandy is a
-
-**Gold answer:** hurricane
-
-**Predicted answer:** hurricane (f1=1.00, conf=0.160)
-
-**Entropy:** sent_entropy_norm=0.833, tok_entropy_norm=0.622, combined=0.728 (sent_entropy=2.536, tok_entropy=3.457, num_sentences=21)
-
-**Answer-sentence attention:** share=0.119, rank=2/21 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** sad stories (conf=0.312)
-
-**Probe entropy:** sent_entropy_norm=0.878, tok_entropy_norm=0.702, combined=0.790
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | From the passage we know Sandy is a | hurricane | hurricane | 1.00 | 0.833 | 0.500 | 0.622 | 0.059 |
+| probe | What is the main topic of the passage? | -- | sad stories | -- | 0.878 | 0.592 | 0.702 | 0.082 |
 
 ### Passage 6
 
@@ -198,25 +124,14 @@ We have math at 8:00. How boring! Then we have English. That's interesting. I kn
 Yours,
 Ben
 
-(1/5 of this passage's questions were captured_correct -- only those are shown below)
+19 sentences, 137 tokens. 1/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Their first lesson is   _  .
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Their first lesson is   _  . | math | math | 1.00 | 0.806 | 0.435 | 0.668 | 0.084 |
+| probe | What is the main topic of the passage? | -- | math | -- | 0.788 | 0.420 | 0.683 | 0.093 |
 
-**Gold answer:** math
-
-**Predicted answer:** math (f1=1.00, conf=0.063)
-
-**Entropy:** sent_entropy_norm=0.806, tok_entropy_norm=0.668, combined=0.737 (sent_entropy=2.374, tok_entropy=3.288, num_sentences=19)
-
-**Answer-sentence attention:** share=0.026, rank=10/19 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** math (conf=0.159)
-
-**Probe entropy:** sent_entropy_norm=0.788, tok_entropy_norm=0.683, combined=0.736
-
-Avg over 8 captured=Y question(s): sent_entropy_norm=0.816, tok_entropy_norm=0.641, combined=0.728 (probe combined avg=0.739); answer_sentence_attention_share=0.083, answer_sentence_rank=7.62 (n_located=8)
+Avg over 8 captured=Y question(s) -- sentence: entropy_norm=0.816, pr_norm=0.492, top1=0.181, top2=0.347, top3=0.506; token: entropy_norm=0.641, pr_norm=0.061, top5=0.542, top10=0.687, top15=0.726
 
 ## RACE-high / MEDIUM
 
@@ -231,23 +146,12 @@ Avg over 8 captured=Y question(s): sent_entropy_norm=0.816, tok_entropy_norm=0.6
    The subject of the statues differs and often shows an event, famous building or person from the previous year. For example, in 2004, there were statues of Hideki Matsui, the famous baseball player who at that time played for the New York Yankees. A number of stages made out of snow are also constructed and some events including musical performances are held. At the Satoland site, visitors can enjoy long snow and ice slides as well as a huge maze  made of snow. Visitors can also enjoy a variety of local foods from all over Hokkaido at the Odori Park and Satoland sites, such as fresh seafood, potatoes and corn, and fresh dairy products. 
     Every year the number of Statues displayed is around 400 in total. In 2007, ther were 307 statues created in the Odori Park site, 32 in the Satoland site and 100 in the Susukino site. The best place to view the creations is from the TV Tower at the Odori Park site. Most of the statues are lighted in the evening. The Sapporo Snow Festival Museum is placed in the Hitsujigaoka observation hill  in Toyohira-ku, and displays historical materials and media of the festival.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+17 sentences, 436 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** The Sapporo Snow Festival 2013 will start from   _  .
-
-**Gold answer:** February 5
-
-**Predicted answer:** February (f1=0.67, conf=0.261)
-
-**Entropy:** sent_entropy_norm=0.898, tok_entropy_norm=0.556, combined=0.727 (sent_entropy=2.543, tok_entropy=3.382, num_sentences=17)
-
-**Answer-sentence attention:** share=0.028, rank=12/17 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** promoting international relations (conf=0.593)
-
-**Probe entropy:** sent_entropy_norm=0.902, tok_entropy_norm=0.693, combined=0.798
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | The Sapporo Snow Festival 2013 will start from   _  . | February 5 | February | 0.67 | 0.898 | 0.686 | 0.556 | 0.034 |
+| probe | What is the main topic of the passage? | -- | promoting international relations | -- | 0.902 | 0.648 | 0.693 | 0.051 |
 
 ### Passage 2
 
@@ -261,23 +165,12 @@ China doesn't keep comprehensive statistics on student suicides, but Jin said he
 Wang Yufeng, of Peking University's Institute of Mental, estimates the rate of emotional disorders such as depression among Chinese students under age 17 at up to 32 percent , a total of 30 million students. 
 Others say that figure may be as high as 50 percent. A survey last year by the government's China Youth and ChildrenResearchCentershowed 57.6 percent of students felt highly distressed by academic pressures.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+19 sentences, 470 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Where will we most probably find the article?
-
-**Gold answer:** In a newspaper.
-
-**Predicted answer:** newspaper (f1=0.50, conf=0.048)
-
-**Entropy:** sent_entropy_norm=0.901, tok_entropy_norm=0.720, combined=0.811 (sent_entropy=2.653, tok_entropy=4.433, num_sentences=19)
-
-**Answer-sentence attention:** share=0.056, rank=12/19 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** academic pressures (conf=0.895)
-
-**Probe entropy:** sent_entropy_norm=0.872, tok_entropy_norm=0.689, combined=0.781
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Where will we most probably find the article? | In a newspaper. | newspaper | 0.50 | 0.901 | 0.644 | 0.720 | 0.064 |
+| probe | What is the main topic of the passage? | -- | academic pressures | -- | 0.872 | 0.556 | 0.689 | 0.060 |
 
 ### Passage 3
 
@@ -293,23 +186,12 @@ Gayriage   refers to two people of equal gender form of marriage. Two men to get
 Mompetition, it is the competition between mothers, comparing whose child is more beautiful, more smarter, more fashionable. It can be compared two or more mothers, and the children being compared can be adult.
 Social bubble  , which means that some people seem to know many people, but only few people could be friends. After "financial bubble", "housing bubble", personal bubbles begin to hit career people.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+14 sentences, 303 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Tom is a   _  , crazy about selfies.
-
-**Gold answer:** fanboy
-
-**Predicted answer:** Fangirl" or "fanboy (f1=0.50, conf=0.015)
-
-**Entropy:** sent_entropy_norm=0.873, tok_entropy_norm=0.667, combined=0.770 (sent_entropy=2.303, tok_entropy=3.809, num_sentences=14)
-
-**Answer-sentence attention:** share=0.154, rank=2/14 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** M (conf=0.000)
-
-**Probe entropy:** sent_entropy_norm=0.876, tok_entropy_norm=0.592, combined=0.734
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Tom is a   _  , crazy about selfies. | fanboy | Fangirl" or "fanboy | 0.50 | 0.873 | 0.586 | 0.667 | 0.054 |
+| probe | What is the main topic of the passage? | -- | M | -- | 0.876 | 0.613 | 0.592 | 0.041 |
 
 ### Passage 4
 
@@ -330,23 +212,12 @@ Social bubble  , which means that some people seem to know many people, but only
 Channel 8  Movie At Day's End (1981) Michael Collier, Julie Romer. Drama set in World War II
 Channel 9   News Special "Saving Our Waterways: Pollution in the Mississippi"
 
-(1/2 of this passage's questions were captured_correct -- only those are shown below)
+7 sentences, 235 tokens. 1/2 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Which is most probably the News Channel?
-
-**Gold answer:** Channel9.
-
-**Predicted answer:** Channel 9 (f1=0.00, conf=0.358)
-
-**Entropy:** sent_entropy_norm=0.751, tok_entropy_norm=0.547, combined=0.649 (sent_entropy=1.461, tok_entropy=2.985, num_sentences=7)
-
-**Answer-sentence attention:** share=0.033, rank=5/7 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Pollution in the Mississippi (conf=0.413)
-
-**Probe entropy:** sent_entropy_norm=0.792, tok_entropy_norm=0.584, combined=0.688
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Which is most probably the News Channel? | Channel9. | Channel 9 | 0.00 | 0.751 | 0.428 | 0.547 | 0.021 |
+| probe | What is the main topic of the passage? | -- | Pollution in the Mississippi | -- | 0.792 | 0.480 | 0.584 | 0.026 |
 
 ### Passage 5
 
@@ -361,26 +232,15 @@ Clearly the letter "i" also agrees with the idea that the Western World is cente
 Along with "Google" and "blog", readers of BBC Magazines voted "i" as one of the top 20 words that have come to define the last decade. 
 But as history shows, people grow tired of fads. From the 1900s to 1990s, products with "2000" in their names became fashionable as the year was associated with all things advanced and modern. However, as we entered the new century, the trend inevitably  disappeared.
 
-(1/4 of this passage's questions were captured_correct -- only those are shown below)
+20 sentences, 448 tokens. 1/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** We can infer that the Independent's "i" is aimed at   _  .
-
-**Gold answer:** young readers
-
-**Predicted answer:** young people (f1=0.50, conf=0.945)
-
-**Entropy:** sent_entropy_norm=0.865, tok_entropy_norm=0.658, combined=0.762 (sent_entropy=2.592, tok_entropy=4.018, num_sentences=20)
-
-**Answer-sentence attention:** share=0.171, rank=1/20 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Most "i" products are targeted at young people and considering the major readers of Independent's "i", it's no surprise that they've selected this fashionable name. 
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | We can infer that the Independent's "i" is aimed at   _  . | young readers | young people | 0.50 | 0.865 | 0.528 | 0.658 | 0.045 |
+| probe | What is the main topic of the passage? | -- | Most "i" products are targeted at young people and considering the major readers of Independent's "i", it's no surprise that they've selected this fashionable name. 
 But it's hard to see what's so special about the letter "i". Why not use "a", "b", or "c" instead? According to Tony Thorne, head of the Language Center at King's College, London, "i" works because its meaning has become ambiguous. When Apple uses "i", no one knows whether it means Internet, information, individual or interactive, Thorne told BBC Magazines. "Even when Apple created the iPod, it seems it didn't have one clear definition," he says. 
 "However, thanks to Apple, the term is now associated with portability." adds Thorne.
-Clearly the letter "i" also agrees with the idea that the Western World is centered on the individual. Each person believes they have their own needs (conf=0.004)
-
-**Probe entropy:** sent_entropy_norm=0.877, tok_entropy_norm=0.623, combined=0.750
+Clearly the letter "i" also agrees with the idea that the Western World is centered on the individual. Each person believes they have their own needs | -- | 0.877 | 0.590 | 0.623 | 0.040 |
 
 ### Passage 6
 
@@ -391,25 +251,14 @@ The last evening of our vacation, however, we all heard strange footsteps follow
 We could hear the man's footsteps getting closer. Dad's face was almost pale. The so-called intruder   had moved nearer and nearer when all of a sudden, the nearby vending  machine started going crazy and spitting out cans of soda! The noise actually scared the intruder and he ran out of sight. My parents were shaking, but we all turned around to see who had put money into the vending machine downstairs, and actually saved us, but no one was around at all. Not a soul. 
 It's one vacation I will never forget.
 
-(1/2 of this passage's questions were captured_correct -- only those are shown below)
+24 sentences, 367 tokens. 1/2 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What helped them get rid of the trouble?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What helped them get rid of the trouble? | The noise from the vending machine. | soda! The noise actually scared the intruder and he ran out of sight. My parents were shaking, but we all turned around to see who had put money into the vending machine | 0.21 | 0.935 | 0.712 | 0.819 | 0.111 |
+| probe | What is the main topic of the passage? | -- | water | -- | 0.888 | 0.582 | 0.723 | 0.065 |
 
-**Gold answer:** The noise from the vending machine.
-
-**Predicted answer:** soda! The noise actually scared the intruder and he ran out of sight. My parents were shaking, but we all turned around to see who had put money into the vending machine (f1=0.21, conf=0.000)
-
-**Entropy:** sent_entropy_norm=0.935, tok_entropy_norm=0.819, combined=0.877 (sent_entropy=2.973, tok_entropy=4.835, num_sentences=24)
-
-**Answer-sentence attention:** share=0.042, rank=12/24 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** water (conf=0.001)
-
-**Probe entropy:** sent_entropy_norm=0.888, tok_entropy_norm=0.723, combined=0.805
-
-Avg over 6 captured=Y question(s): sent_entropy_norm=0.870, tok_entropy_norm=0.661, combined=0.766 (probe combined avg=0.759); answer_sentence_attention_share=0.081, answer_sentence_rank=7.33 (n_located=6)
+Avg over 6 captured=Y question(s) -- sentence: entropy_norm=0.870, pr_norm=0.597, top1=0.175, top2=0.319, top3=0.426; token: entropy_norm=0.661, pr_norm=0.055, top5=0.399, top10=0.643, top15=0.685
 
 ## RACE-C / HARD
 
@@ -429,23 +278,12 @@ Vitamin C is needed for strong bones and teeth.and for healthy blood passages.It
 Vitamin D increases levels of the element calcium(')in the blood.Calcium is needed for nerve and muscle cells to work normally.It is also needed to build strong bones.VitaminD prevents the children's bone disease rickets.Ultraviolet light from the sun changes a substance in the skin into vitamin D Fish liver oil also contains vitamin D.In some countries.milk producers add vitamin D to milk so children will get enough.
 Vitamin K is needed for healthy blood.It thickens the blood around a cut to stop bleeding.Bacteria in the intestines f)normally produce vitamin K.It can also be found in pork products.1iver and in vegetables like cabbage.kale and spinach.
 
-(1/4 of this passage's questions were captured_correct -- only those are shown below)
+43 sentences, 458 tokens. 1/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Lack of Vitamin A will lead to _ .
-
-**Gold answer:** night blindness
-
-**Predicted answer:** blindness (f1=0.67, conf=0.854)
-
-**Entropy:** sent_entropy_norm=0.700, tok_entropy_norm=0.530, combined=0.615 (sent_entropy=2.634, tok_entropy=3.249, num_sentences=43)
-
-**Answer-sentence attention:** share=0.045, rank=8/43 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Vitamins are important to our health (conf=0.262)
-
-**Probe entropy:** sent_entropy_norm=0.730, tok_entropy_norm=0.584, combined=0.657
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Lack of Vitamin A will lead to _ . | night blindness | blindness | 0.67 | 0.700 | 0.226 | 0.530 | 0.024 |
+| probe | What is the main topic of the passage? | -- | Vitamins are important to our health | -- | 0.730 | 0.228 | 0.584 | 0.025 |
 
 ### Passage 2
 
@@ -456,23 +294,12 @@ These two young students were experiencing something called test anxiety. Becaus
 Special university counseling courses try to help students. In these courses, counselors try to help students by teaching them how to manage test anxiety. At some universities, students take tests to measure their anxiety. If the tests show their anxiety is high, the students can take short courses to help them deal with their tension. These courses teach students how to relax their bodies. Students are trained to become calm in bery tense situations. By controlling their nervousness, they can let their minds work at ease. Learned information then comes out without difficulty on a test.
 An expert at the University of California explains. "With almost all students, relaxation and less stress are felt after taking out program. Most of then experience better control during their tests. Almost all have some improvement. With some, the improvement is very great."
 
-(1/5 of this passage's questions were captured_correct -- only those are shown below)
+32 sentences, 440 tokens. 1/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Test anxiety has been recognized as _ .
-
-**Gold answer:** a real problem
-
-**Predicted answer:** a real problem (f1=1.00, conf=0.496)
-
-**Entropy:** sent_entropy_norm=0.757, tok_entropy_norm=0.603, combined=0.680 (sent_entropy=2.623, tok_entropy=3.670, num_sentences=32)
-
-**Answer-sentence attention:** share=0.219, rank=1/32 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** chemistry (conf=0.422)
-
-**Probe entropy:** sent_entropy_norm=0.805, tok_entropy_norm=0.611, combined=0.708
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Test anxiety has been recognized as _ . | a real problem | a real problem | 1.00 | 0.757 | 0.306 | 0.603 | 0.049 |
+| probe | What is the main topic of the passage? | -- | chemistry | -- | 0.805 | 0.409 | 0.611 | 0.042 |
 
 ### Passage 3
 
@@ -488,24 +315,13 @@ The recent moves to widen the scope of nurse practitioners concern many GPs. Whi
 Minister Roxon's move to cut Medicare payments for cataract surgery again fl ies in the face of reality. On the face of it, it may seem plausible-better technology equals cheaper prices. If the Fred Hollows Foundation can do cataract surgery for $25, why can't an Australian ophthalmologist? The reason is that an Australian eye-doctor is running a practice. He has to pay a receptionist, an accountant, rent for his rooms and so on-in other words, he has fixed costs, which means the money goes into a lot of pockets apart from his own. In fact, he can't absorb the cost cuts that the government is asking him to accept.
 From News Weekly, November 28, 2009
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+25 sentences, 499 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What did the Health Minister propose?
-
-**Gold answer:** to allocate the patients to doctors on a list basis
-
-**Predicted answer:** that patients be allocated to doctors on a list basis (f1=0.70, conf=0.853)
-
-**Entropy:** sent_entropy_norm=0.812, tok_entropy_norm=0.715, combined=0.763 (sent_entropy=2.614, tok_entropy=4.443, num_sentences=25)
-
-**Answer-sentence attention:** share=0.166, rank=1/25 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Health Minister Nicola Roxon's latest proposal that patients be allocated to doctors on a list basis is straight out of the playbook of Britain's National Health Service.
-Let's think about this from the patient's point of view (conf=0.008)
-
-**Probe entropy:** sent_entropy_norm=0.794, tok_entropy_norm=0.609, combined=0.701
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What did the Health Minister propose? | to allocate the patients to doctors on a list basis | that patients be allocated to doctors on a list basis | 0.70 | 0.812 | 0.449 | 0.715 | 0.060 |
+| probe | What is the main topic of the passage? | -- | Health Minister Nicola Roxon's latest proposal that patients be allocated to doctors on a list basis is straight out of the playbook of Britain's National Health Service.
+Let's think about this from the patient's point of view | -- | 0.794 | 0.450 | 0.609 | 0.041 |
 
 ### Passage 4
 
@@ -516,23 +332,12 @@ Whatever we may call them, the general opinion of the police seems to be a favor
 Well, the British bobby may not always be wonderful but he is usually a very friendly and helpful sort of character. A music-hall song of some years ago was called "If You Want To Know The Time, Ask A Policeman". Nowadays, most people own watches but they still seem to find plenty of other questions to ask the policeman. In London, the policemen spend so much of their time directing visitors about the city that one wonders how they ever find time to do anything else!
 Two things are immediately noticeable to the stranger when he sees an English policeman for the first time. The first is that he does not carry a pistol and the second is that he wears a very distinctive type of headgear, the policeman's helmet. His helmet, together with his height, enable an English policeman to be seen from a considerable distance, a fact that is not without its usefulness. From time to time it is suggested that the policeman should be given a pistol and that his helmet should be taken from him, but both these suggestions are resisted by the majority of the public and the police themselves.
 
-(1/4 of this passage's questions were captured_correct -- only those are shown below)
+14 sentences, 440 tokens. 1/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Nowadays British people call the policeman _ .
-
-**Gold answer:** bobby
-
-**Predicted answer:** bobby (f1=1.00, conf=0.847)
-
-**Entropy:** sent_entropy_norm=0.924, tok_entropy_norm=0.668, combined=0.796 (sent_entropy=2.438, tok_entropy=4.068, num_sentences=14)
-
-**Answer-sentence attention:** share=0.047, rank=9/14 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** criminal part of the community (conf=0.004)
-
-**Probe entropy:** sent_entropy_norm=0.901, tok_entropy_norm=0.635, combined=0.768
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Nowadays British people call the policeman _ . | bobby | bobby | 1.00 | 0.924 | 0.714 | 0.668 | 0.037 |
+| probe | What is the main topic of the passage? | -- | criminal part of the community | -- | 0.901 | 0.664 | 0.635 | 0.032 |
 
 ### Passage 5
 
@@ -541,33 +346,13 @@ Two things are immediately noticeable to the stranger when he sees an English po
 > As supplier of most of the food we eat and of raw materials for many industrial processes, agriculture is clearly an important area of the economy. But the industrial performance of agriculture is even more important than this. For in nations where the productivity of farmers is low, most of the working population is needed to raise food and few people are available for production of investment goods or for other activities required for economic growth. Indeed, one of the factors related most closely to the per capital income  of a nation is the fraction of its population engaged in farming. In the poorest nations of the world more than half of the population lives on farms. This compares sharply with less than 10 per cent in Western Europe and less than 4 per cent in the United States.
 In short, the course of economic development in general depends in a fundamental way on the performance of farmers. This performance in turn, depends on how agriculture is organized and on the economic environment, or market structure, within which it function. In the following pages the performance of American agriculture is examined. It is appropriate to begin with a conversation of its market structure.
 
-(2/5 of this passage's questions were captured_correct -- only those are shown below)
+10 sentences, 222 tokens. 2/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What is most important to agriculture is ________.
-
-**Gold answer:** its industrial performance
-
-**Predicted answer:** industrial performance (f1=0.80, conf=0.621)
-
-**Entropy:** sent_entropy_norm=0.955, tok_entropy_norm=0.701, combined=0.828 (sent_entropy=2.198, tok_entropy=3.789, num_sentences=10)
-
-**Answer-sentence attention:** share=0.159, rank=1/10 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** The performance of farmers essentially determines ________.
-
-**Gold answer:** the general development of economy
-
-**Predicted answer:** the course of economic development (f1=0.60, conf=0.446)
-
-**Entropy:** sent_entropy_norm=0.924, tok_entropy_norm=0.668, combined=0.796 (sent_entropy=2.128, tok_entropy=3.610, num_sentences=10)
-
-**Answer-sentence attention:** share=0.211, rank=1/10 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** its market structure (conf=0.729)
-
-**Probe entropy:** sent_entropy_norm=0.972, tok_entropy_norm=0.674, combined=0.823
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What is most important to agriculture is ________. | its industrial performance | industrial performance | 0.80 | 0.955 | 0.826 | 0.701 | 0.073 |
+| 2 | The performance of farmers essentially determines ________. | the general development of economy | the course of economic development | 0.60 | 0.924 | 0.731 | 0.668 | 0.063 |
+| probe | What is the main topic of the passage? | -- | its market structure | -- | 0.972 | 0.888 | 0.674 | 0.072 |
 
 ### Passage 6
 
@@ -578,25 +363,14 @@ RTCA, an organization which advises the aviation  industry, has recommended that
 The difficulty is predicting how electromagnetic fields might affect an aircraft's computers. Experts know that portable device emit radiation which affects those wavelengths which aircraft use for navigation and communication. But, because they have not been able to reproduce these effects in a laboratory, they have no way of knowing whether the interference might be dangerous or not.
 The fact that aircraft may be vulnerable  to interference raises the risk that terrorists may use radio systems in order to damage navigation equipment. As worrying, though, is the passenger who can't hear the instructions to turn off his radio because the music's too loud.
 
-(1/5 of this passage's questions were captured_correct -- only those are shown below)
+12 sentences, 308 tokens. 1/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Why is it difficult to predict the possible effects of electromagnetic fields on an airplane's computers?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Why is it difficult to predict the possible effects of electromagnetic fields on an airplane's computers? | Because research scientists have not been able to produce the same effects in labs. | because they have not been able to reproduce these effects in a laboratory | 0.59 | 0.932 | 0.776 | 0.714 | 0.075 |
+| probe | What is the main topic of the passage? | -- | the man with the portable computer in business class | -- | 0.904 | 0.668 | 0.690 | 0.069 |
 
-**Gold answer:** Because research scientists have not been able to produce the same effects in labs.
-
-**Predicted answer:** because they have not been able to reproduce these effects in a laboratory (f1=0.59, conf=0.579)
-
-**Entropy:** sent_entropy_norm=0.932, tok_entropy_norm=0.714, combined=0.823 (sent_entropy=2.317, tok_entropy=4.092, num_sentences=12)
-
-**Answer-sentence attention:** share=0.152, rank=1/12 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** the man with the portable computer in business class (conf=0.652)
-
-**Probe entropy:** sent_entropy_norm=0.904, tok_entropy_norm=0.690, combined=0.797
-
-Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.657, combined=0.757 (probe combined avg=0.742); answer_sentence_attention_share=0.143, answer_sentence_rank=3.14 (n_located=7)
+Avg over 7 captured=Y question(s) -- sentence: entropy_norm=0.858, pr_norm=0.575, top1=0.166, top2=0.282, top3=0.392; token: entropy_norm=0.657, pr_norm=0.054, top5=0.422, top10=0.634, top15=0.701
 
 ## OneStopQA / EASY
 
@@ -608,23 +382,12 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > After two years of successful ads with cute animals – a bear and hare, then a penguin – this time, the story is about a young girl, Lily, who sees an old man living in a small wooden house on the moon through her telescope. The girl first tries to send him a letter and a note via bow and arrow. Then, she floats him a present of a telescope tied to balloons. This finally allows them to make contact. The ad’s message is: “Show someone they’re loved this Christmas.” This is similar to Age UK’s campaign: “No one should have no one at Christmas.” Profits from three products – a mug, gift tag and card – will go to the charity. Rachel Swift, head of marketing at John Lewis, said that people talk about charities at Christmas and the ad makes you think about someone who lives on your street that might not see anybody.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+8 sentences, 194 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Who does Rachel Swift work for?
-
-**Gold answer:** John Lewis
-
-**Predicted answer:** John Lewis (f1=1.00, conf=0.998)
-
-**Entropy:** sent_entropy_norm=0.859, tok_entropy_norm=0.701, combined=0.780 (sent_entropy=1.786, tok_entropy=3.693, num_sentences=8)
-
-**Answer-sentence attention:** share=0.283, rank=1/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** a young girl, Lily, who sees an old man living in a small wooden house on the moon through her telescope (conf=0.267)
-
-**Probe entropy:** sent_entropy_norm=0.757, tok_entropy_norm=0.589, combined=0.673
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Who does Rachel Swift work for? | John Lewis | John Lewis | 1.00 | 0.859 | 0.619 | 0.701 | 0.073 |
+| probe | What is the main topic of the passage? | -- | a young girl, Lily, who sees an old man living in a small wooden house on the moon through her telescope | -- | 0.757 | 0.469 | 0.589 | 0.042 |
 
 ### Passage 2
 
@@ -632,23 +395,12 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > Benjamin Carle is 96.9% made in France, even his underpants and socks. Six Ikea forks, a Chinese guitar and some wall paint stopped him being called 100% French, but nobody is perfect. Carle, 26, decided, in 2013, to see if it was possible to live using only French-made products for ten months as part of a television documentary. He got the idea after the Minister for Economic Renewal, Arnaud Montebourg, asked the French people to buy French products. For the experiment, Carle had to give up his smartphone, television, refrigerator (all made in China); his glasses (Italian); his morning coffee (Guatemalan) and his favourite David Bowie music (British). It is lucky that his girlfriend, Anaïs, and cat, Loon, are both French, so he didn’t have to give them up.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+7 sentences, 183 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What did Arnaud Montebourgh do?
-
-**Gold answer:** He asked people to buy products made in France
-
-**Predicted answer:** asked the French people to buy French products (f1=0.59, conf=0.870)
-
-**Entropy:** sent_entropy_norm=0.870, tok_entropy_norm=0.722, combined=0.796 (sent_entropy=1.694, tok_entropy=3.761, num_sentences=7)
-
-**Answer-sentence attention:** share=0.235, rank=1/7 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** nobody is perfect. Carle, 26, decided, in 2013, to see if it was possible to live using only French-made products for ten months as part of a television documentary (conf=0.138)
-
-**Probe entropy:** sent_entropy_norm=0.840, tok_entropy_norm=0.600, combined=0.720
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What did Arnaud Montebourgh do? | He asked people to buy products made in France | asked the French people to buy French products | 0.59 | 0.870 | 0.689 | 0.722 | 0.073 |
+| probe | What is the main topic of the passage? | -- | nobody is perfect. Carle, 26, decided, in 2013, to see if it was possible to live using only French-made products for ten months as part of a television documentary | -- | 0.840 | 0.664 | 0.600 | 0.044 |
 
 ### Passage 3
 
@@ -656,23 +408,12 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > The department store John Lewis has a 2015 Christmas advertisement. The ad shows a lonely old man who lives on the moon. The ad, which for many people shows that the Christmas shopping season has begun, aims to raise hundreds of thousands of pounds for the charity Age UK. John Lewis will also encourage staff and customers to care for elderly people who might be alone over the holiday. The department store has spent £7 million on a campaign that includes the TV ad, a smartphone game and merchandise, including glow-in-the-dark pyjamas. It will also build areas that look like the surface of the moon in 11 of its stores.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+6 sentences, 129 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Where does the lonely old man appear in John Lewis’s advertisement?
-
-**Gold answer:** On the moon
-
-**Predicted answer:** on the moon (f1=1.00, conf=0.572)
-
-**Entropy:** sent_entropy_norm=0.883, tok_entropy_norm=0.704, combined=0.794 (sent_entropy=1.583, tok_entropy=3.419, num_sentences=6)
-
-**Answer-sentence attention:** share=0.026, rank=6/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Christmas advertisement. The ad shows a lonely old man who lives on the moon. The ad, which for many people shows that the Christmas shopping season has begun, aims to raise hundreds of thousands of pounds for the charity Age UK (conf=0.081)
-
-**Probe entropy:** sent_entropy_norm=0.847, tok_entropy_norm=0.520, combined=0.683
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Where does the lonely old man appear in John Lewis’s advertisement? | On the moon | on the moon | 1.00 | 0.883 | 0.689 | 0.704 | 0.086 |
+| probe | What is the main topic of the passage? | -- | Christmas advertisement. The ad shows a lonely old man who lives on the moon. The ad, which for many people shows that the Christmas shopping season has begun, aims to raise hundreds of thousands of pounds for the charity Age UK | -- | 0.847 | 0.657 | 0.520 | 0.042 |
 
 ### Passage 4
 
@@ -680,23 +421,12 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > Autism is a disorder that one in 100 people have. It affects people in different ways, but causes difficulties in social interaction and communication. So far, there is no effective treatment for the social problems that autism causes. Researchers at Yale have studied the brain chemical oxytocin. They say it is a possible treatment for the social problems caused by autism because it plays an important role in bonding and trust. But not all results are positive: one recent study found no significant benefit for young people who took the chemical for several days. But Pelphrey said oxytocin might help the brain learn from social interactions; it would work best when used together with therapies that encourage people with autism to interact more socially, he said.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+7 sentences, 145 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** How were the social aspects of autism effectively treated before the time this article was written?
-
-**Gold answer:** There was no effective treatment available
-
-**Predicted answer:** there is no effective treatment (f1=0.73, conf=0.385)
-
-**Entropy:** sent_entropy_norm=0.893, tok_entropy_norm=0.683, combined=0.788 (sent_entropy=1.737, tok_entropy=3.400, num_sentences=7)
-
-**Answer-sentence attention:** share=0.031, rank=6/7 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Autism (conf=0.871)
-
-**Probe entropy:** sent_entropy_norm=0.828, tok_entropy_norm=0.541, combined=0.684
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | How were the social aspects of autism effectively treated before the time this article was written? | There was no effective treatment available | there is no effective treatment | 0.73 | 0.893 | 0.714 | 0.683 | 0.076 |
+| probe | What is the main topic of the passage? | -- | Autism | -- | 0.828 | 0.612 | 0.541 | 0.049 |
 
 ### Passage 5
 
@@ -704,23 +434,12 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > Scientists must find new names for the elements but, also, they must suggest two-letter symbols for the elements. When IUPAC has received the researchers’ suggestions, they will tell the public so that people can comment on the names. That allows scientists and others to find any problems with the names. In 1996, someone suggested the symbol Cp for copernicium, or element 112, but it was changed to Cn, when scientists complained that Cp was already the symbol for another substance.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+4 sentences, 103 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Why was the suggestion to use symbol Cp for copernicium not accepted?
-
-**Gold answer:** The symbol was already being used for a different substance
-
-**Predicted answer:** Cp was already the symbol for another substance (f1=0.67, conf=0.789)
-
-**Entropy:** sent_entropy_norm=0.883, tok_entropy_norm=0.670, combined=0.776 (sent_entropy=1.224, tok_entropy=3.104, num_sentences=4)
-
-**Answer-sentence attention:** share=0.439, rank=1/4 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Scientists must find new names for the elements but, also, they must suggest two-letter symbols for the elements. When IUPAC has received the researchers’ suggestions, they will tell the public so that people can comment on the names. That allows scientists and others to find any problems with the names (conf=0.104)
-
-**Probe entropy:** sent_entropy_norm=0.851, tok_entropy_norm=0.481, combined=0.666
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Why was the suggestion to use symbol Cp for copernicium not accepted? | The symbol was already being used for a different substance | Cp was already the symbol for another substance | 0.67 | 0.883 | 0.702 | 0.670 | 0.072 |
+| probe | What is the main topic of the passage? | -- | Scientists must find new names for the elements but, also, they must suggest two-letter symbols for the elements. When IUPAC has received the researchers’ suggestions, they will tell the public so that people can comment on the names. That allows scientists and others to find any problems with the names | -- | 0.851 | 0.689 | 0.481 | 0.038 |
 
 ### Passage 6
 
@@ -728,25 +447,14 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.858, tok_entropy_norm=0.6
 
 > Most of our customers are “baby boomers who want to have the cycling experience they had as a kid,” says Pedego’s Don DiCostanza. “The main reason they stopped riding bikes was because of hills.” Pedego has opened nearly 60 stores in the US. ElectroBike has 30 stores in Mexico. It opened its first American store in Venice Beach, California in 2014 and hopes to have 25 US stores in a year. CEO Craig Anderson says: “We want to help reduce traffic, help reduce our carbon footprint and encourage a healthy lifestyle.” He tells customers: “Ride this bike once and try not to smile.” Startups like Pedego and ElectroBike will have to compete with big companies like Trek, Currie, and Accell - the market leader in e-bikes in Europe. Accell owns the Raleigh brand, as well as Haibike, an award-winning German electric bike.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+9 sentences, 204 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What does ElectroBike hope to accomplish within a year of opening its store in Venice Beach?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What does ElectroBike hope to accomplish within a year of opening its store in Venice Beach? | Have 25 stores in the US | hopes to have 25 US stores in a year | 0.67 | 0.919 | 0.742 | 0.698 | 0.065 |
+| probe | What is the main topic of the passage? | -- | reduce traffic | -- | 0.926 | 0.782 | 0.624 | 0.054 |
 
-**Gold answer:** Have 25 stores in the US
-
-**Predicted answer:** hopes to have 25 US stores in a year (f1=0.67, conf=0.128)
-
-**Entropy:** sent_entropy_norm=0.919, tok_entropy_norm=0.698, combined=0.808 (sent_entropy=2.019, tok_entropy=3.711, num_sentences=9)
-
-**Answer-sentence attention:** share=0.077, rank=7/9 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** reduce traffic (conf=0.312)
-
-**Probe entropy:** sent_entropy_norm=0.926, tok_entropy_norm=0.624, combined=0.775
-
-Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.696, combined=0.790 (probe combined avg=0.700); answer_sentence_attention_share=0.182, answer_sentence_rank=3.67 (n_located=6)
+Avg over 6 captured=Y question(s) -- sentence: entropy_norm=0.884, pr_norm=0.693, top1=0.286, top2=0.498, top3=0.685; token: entropy_norm=0.696, pr_norm=0.074, top5=0.591, top10=0.647, top15=0.682
 
 ## OneStopQA / MEDIUM
 
@@ -758,23 +466,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > The potential for solar power from the desert has been known for decades. In the days after the Chernobyl nuclear accident in 1986, the German particle physicist Gerhard Knies calculated that the world’s deserts receive enough energy in a few hours to provide power for all the people in the world for a whole year. But the challenge is to capture that energy and take it to where it is needed. Experts say that solar energy will make up a third of Morocco’s renewable energy supply by 2020. Wind and hydro will make up the other two-thirds. “We are very proud of this project,” Morocco’s environment minister, Hakima el-Haite said. “I think it is the most important solar plant in the world.”
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+8 sentences, 158 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** By 2020, two-thirds of Morocco’s renewable energy will be ...
-
-**Gold answer:** Hydro and wind energy
-
-**Predicted answer:** Wind and hydro (f1=0.86, conf=0.648)
-
-**Entropy:** sent_entropy_norm=0.792, tok_entropy_norm=0.536, combined=0.664 (sent_entropy=1.647, tok_entropy=2.715, num_sentences=8)
-
-**Answer-sentence attention:** share=0.241, rank=1/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** the challenge is to capture that energy and take it to where it is needed (conf=0.315)
-
-**Probe entropy:** sent_entropy_norm=0.793, tok_entropy_norm=0.570, combined=0.682
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | By 2020, two-thirds of Morocco’s renewable energy will be ... | Hydro and wind energy | Wind and hydro | 0.86 | 0.792 | 0.550 | 0.536 | 0.039 |
+| probe | What is the main topic of the passage? | -- | the challenge is to capture that energy and take it to where it is needed | -- | 0.793 | 0.539 | 0.570 | 0.045 |
 
 ### Passage 2
 
@@ -782,23 +479,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > Vienna is the world’s best city to live in, Baghdad is the worst and London, Paris and New York do not even enter the top 35, according to international research into quality of life. German-speaking cities dominate the rankings in the 18th Mercer Quality of Life study, with Vienna joined by Zurich, Munich, Dusseldorf and Frankfurt in the top seven. Paris has dropped down the table – it has fallen ten places to 37th, just ahead of London at 39th, mostly because of the terrorist attacks on the city. The study examined social and economic conditions, health, education, housing and the environment. It is used by big companies to decide where they should open offices and factories and how much they should pay staff.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+5 sentences, 153 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What is the ranking of Paris in the 18th Mercer Quality of Life study?
-
-**Gold answer:** 37th
-
-**Predicted answer:** 37th (f1=1.00, conf=0.981)
-
-**Entropy:** sent_entropy_norm=0.858, tok_entropy_norm=0.574, combined=0.716 (sent_entropy=1.380, tok_entropy=2.889, num_sentences=5)
-
-**Answer-sentence attention:** share=0.344, rank=1/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** The study examined social and economic conditions, health, education, housing and the environment (conf=0.228)
-
-**Probe entropy:** sent_entropy_norm=0.810, tok_entropy_norm=0.558, combined=0.684
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What is the ranking of Paris in the 18th Mercer Quality of Life study? | 37th | 37th | 1.00 | 0.858 | 0.650 | 0.574 | 0.038 |
+| probe | What is the main topic of the passage? | -- | The study examined social and economic conditions, health, education, housing and the environment | -- | 0.810 | 0.569 | 0.558 | 0.040 |
 
 ### Passage 3
 
@@ -806,23 +492,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > According to American researchers, a nasal spray containing the ‘Love hormone’ oxytocin could help children with autism behave more normally in social situations. Scans of autistic children showed that a single dose of the chemical improved brain responses to facial expressions. This is something that could make social interactions feel more natural and rewarding for them. The researchers said oxytocin might increase the success of behavioral therapies that are already used to help people with autism learn to cope with social situations “Over time, what you would expect to see is more normal social responding, being more interested in interacting with other people, more eye contact and more conversation,” said Kevin Pelphrey, of Yale University.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+4 sentences, 140 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What difference did oxytocin make to the brains of autistic children, as shown in brain scans?
-
-**Gold answer:** Improved responses to faces
-
-**Predicted answer:** improved brain responses to facial expressions (f1=0.60, conf=0.894)
-
-**Entropy:** sent_entropy_norm=0.822, tok_entropy_norm=0.620, combined=0.721 (sent_entropy=1.139, tok_entropy=3.064, num_sentences=4)
-
-**Answer-sentence attention:** share=0.286, rank=2/4 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** oxytocin could help children with autism (conf=0.066)
-
-**Probe entropy:** sent_entropy_norm=0.799, tok_entropy_norm=0.510, combined=0.655
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What difference did oxytocin make to the brains of autistic children, as shown in brain scans? | Improved responses to faces | improved brain responses to facial expressions | 0.60 | 0.822 | 0.626 | 0.620 | 0.048 |
+| probe | What is the main topic of the passage? | -- | oxytocin could help children with autism | -- | 0.799 | 0.591 | 0.510 | 0.033 |
 
 ### Passage 4
 
@@ -830,23 +505,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > Part of the reason for this is that air travel is dangerous so standards are much higher. “If you fly commercial airlines, they often say, ‘Oh, a small component has failed – we have to go back to the gate,’” Singh said. “And that’s an established industry with 60 years of legacy! I hate to think that a drone might come down on a busy road.” Part of the solution, Singh said, is planning for every situation: “If things fail, the vehicle has to do something reasonable.”
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+6 sentences, 119 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** According to Singh, why do passenger airplanes often return to the gate?
-
-**Gold answer:** A small part has failed
-
-**Predicted answer:** a small component has failed (f1=0.80, conf=0.836)
-
-**Entropy:** sent_entropy_norm=0.839, tok_entropy_norm=0.713, combined=0.776 (sent_entropy=1.504, tok_entropy=3.405, num_sentences=6)
-
-**Answer-sentence attention:** share=0.236, rank=2/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** planning for every situation (conf=0.342)
-
-**Probe entropy:** sent_entropy_norm=0.798, tok_entropy_norm=0.513, combined=0.656
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | According to Singh, why do passenger airplanes often return to the gate? | A small part has failed | a small component has failed | 0.80 | 0.839 | 0.636 | 0.713 | 0.092 |
+| probe | What is the main topic of the passage? | -- | planning for every situation | -- | 0.798 | 0.584 | 0.513 | 0.046 |
 
 ### Passage 5
 
@@ -854,23 +518,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > Do you want your child to be good at sports, play for the school team and, maybe one day, even compete in international competitions? Well, try to make sure that your future Olympian or World Cup winner is born in November or October. A study has found that school pupils born in those months are fitter than everyone else in their class. November- and October-born children were fitter, stronger and more powerful than those born in the other ten months of the year, especially those whose birthdays were in April or June. Dr. Gavin Sandercock of Essex University found in his study that autumn-born children had “a clear physical advantage” over their classmates.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+6 sentences, 140 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Who does the article suggest to be the weakest in comparison with children born in October and November?
-
-**Gold answer:** Children born in April and June
-
-**Predicted answer:** November- and October-born children were fitter, stronger and more powerful than those born in the other ten months of the year, especially those whose birthdays were in April or June (f1=0.33, conf=0.073)
-
-**Entropy:** sent_entropy_norm=0.714, tok_entropy_norm=0.592, combined=0.653 (sent_entropy=1.279, tok_entropy=2.928, num_sentences=6)
-
-**Answer-sentence attention:** share=0.404, rank=1/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** try to make sure that your future Olympian or World Cup winner is born in November or October (conf=0.313)
-
-**Probe entropy:** sent_entropy_norm=0.598, tok_entropy_norm=0.460, combined=0.529
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Who does the article suggest to be the weakest in comparison with children born in October and November? | Children born in April and June | November- and October-born children were fitter, stronger and more powerful than those born in the other ten months of the year, especially those whose birthdays were in April or June | 0.33 | 0.714 | 0.439 | 0.592 | 0.043 |
+| probe | What is the main topic of the passage? | -- | try to make sure that your future Olympian or World Cup winner is born in November or October | -- | 0.598 | 0.284 | 0.460 | 0.020 |
 
 ### Passage 6
 
@@ -878,25 +531,14 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.6
 
 > The ice-cream shop is in a documentary by film-makers Rob and Lisa Fruchtman. Sweet Dreams, which tells the story of how the women have made a promising post-genocide future, also includes the female drummers. The film has been shown in more than a dozen countries, including the US, UK and several African states. “We feel the film is about resilience, hope, bravery, resourcefulness and the ability to change the course of your own life,” says Lisa Fruchtman.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+4 sentences, 108 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What is the name of Rob and Lisa Fruchtman’s film?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What is the name of Rob and Lisa Fruchtman’s film? | Sweet Dreams | Sweet Dreams | 1.00 | 0.953 | 0.864 | 0.600 | 0.052 |
+| probe | What is the main topic of the passage? | -- | how the women have made a promising post-genocide future | -- | 0.888 | 0.742 | 0.519 | 0.039 |
 
-**Gold answer:** Sweet Dreams
-
-**Predicted answer:** Sweet Dreams (f1=1.00, conf=0.998)
-
-**Entropy:** sent_entropy_norm=0.953, tok_entropy_norm=0.600, combined=0.777 (sent_entropy=1.322, tok_entropy=2.808, num_sentences=4)
-
-**Answer-sentence attention:** share=0.270, rank=3/4 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** how the women have made a promising post-genocide future (conf=0.431)
-
-**Probe entropy:** sent_entropy_norm=0.888, tok_entropy_norm=0.519, combined=0.703
-
-Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.606, combined=0.718 (probe combined avg=0.651); answer_sentence_attention_share=0.297, answer_sentence_rank=1.67 (n_located=6)
+Avg over 6 captured=Y question(s) -- sentence: entropy_norm=0.830, pr_norm=0.627, top1=0.351, top2=0.623, top3=0.861; token: entropy_norm=0.606, pr_norm=0.052, top5=0.682, top10=0.728, top15=0.761
 
 ## OneStopQA / HARD
 
@@ -908,23 +550,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > South American Indians have chewed coca leaves for centuries. The leaves reputedly provide energy and are said to have medicinal qualities. Supporters of Bolivia’s position praised it for doing the right thing by defending the rights of indigenous people. “The Bolivian move is inspirational and groundbreaking,” said Danny Kushlick, Head of External Affairs at the Transform Drug Policy Foundation, which promotes drug liberalization. “It shows that any country that has had enough of the war on drugs can change the terms of its engagement with the UN conventions.”
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+6 sentences, 116 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Who is Danny Kushlick?
-
-**Gold answer:** A member of the Transform Drug Policy Foundation
-
-**Predicted answer:** Head of External Affairs at the Transform Drug Policy Foundation (f1=0.67, conf=0.969)
-
-**Entropy:** sent_entropy_norm=0.679, tok_entropy_norm=0.574, combined=0.626 (sent_entropy=1.217, tok_entropy=2.726, num_sentences=6)
-
-**Answer-sentence attention:** share=0.372, rank=1/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** war on drugs (conf=0.709)
-
-**Probe entropy:** sent_entropy_norm=0.642, tok_entropy_norm=0.474, combined=0.558
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Who is Danny Kushlick? | A member of the Transform Drug Policy Foundation | Head of External Affairs at the Transform Drug Policy Foundation | 0.67 | 0.679 | 0.420 | 0.574 | 0.046 |
+| probe | What is the main topic of the passage? | -- | war on drugs | -- | 0.642 | 0.397 | 0.474 | 0.034 |
 
 ### Passage 2
 
@@ -932,23 +563,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > n octopus has made a brazen escape from the National Aquarium in New Zealand by breaking out of its tank, slithering down a 50-meter drainpipe and disappearing into the sea. In scenes reminiscent of Finding Nemo, Inky – a common New Zealand octopus – made his dash for freedom after the lid of his tank was accidentally left slightly ajar. Staff believe that in the middle of the night, while the aquarium was deserted, Inky clambered to the top of his glass enclosure, down the side of the tank and traveled across the floor of the aquarium. Rob Yarrell, national manager of the National Aquarium of New Zealand in Napier, said: “Octopuses are famous escape artists. I don’t think he was unhappy with us, or lonely, as octopuses are solitary creatures. But, he is such a curious boy. He would want to know what’s happening on the outside. That’s just his personality.”
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+9 sentences, 204 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** How does Yarrell describe Inky’s personality?
-
-**Gold answer:** Curious
-
-**Predicted answer:** curious boy (f1=0.67, conf=0.530)
-
-**Entropy:** sent_entropy_norm=0.895, tok_entropy_norm=0.729, combined=0.812 (sent_entropy=1.966, tok_entropy=3.878, num_sentences=9)
-
-**Answer-sentence attention:** share=0.009, rank=8/9 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** outside (conf=0.000)
-
-**Probe entropy:** sent_entropy_norm=0.894, tok_entropy_norm=0.597, combined=0.746
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | How does Yarrell describe Inky’s personality? | Curious | curious boy | 0.67 | 0.895 | 0.711 | 0.729 | 0.093 |
+| probe | What is the main topic of the passage? | -- | outside | -- | 0.894 | 0.699 | 0.597 | 0.046 |
 
 ### Passage 3
 
@@ -956,23 +576,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > From all across Rwanda, and even parts of neighboring Burundi, people flock to the southern town of Butare to a little shop called Inzozi Nziza (Sweet Dreams). They come for a taste of the unknown, something most have never tasted – the sweet, cold, velvety embrace of ice cream. Here, at the central African country’s first ice-cream parlor, customers can buy scoops in sweet cream, passion fruit, strawberry and pineapple flavors. Toppings include fresh fruit, honey, chocolate chips and granola. Black tea and coffee are also on sale.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+5 sentences, 124 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Where is the ice cream shop located?
-
-**Gold answer:** Butare
-
-**Predicted answer:** the southern town of Butare (f1=0.33, conf=0.603)
-
-**Entropy:** sent_entropy_norm=0.869, tok_entropy_norm=0.612, combined=0.741 (sent_entropy=1.399, tok_entropy=2.951, num_sentences=5)
-
-**Answer-sentence attention:** share=0.088, rank=4/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** a taste of the unknown (conf=0.283)
-
-**Probe entropy:** sent_entropy_norm=0.847, tok_entropy_norm=0.525, combined=0.686
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Where is the ice cream shop located? | Butare | the southern town of Butare | 0.33 | 0.869 | 0.666 | 0.612 | 0.051 |
+| probe | What is the main topic of the passage? | -- | a taste of the unknown | -- | 0.847 | 0.642 | 0.525 | 0.036 |
 
 ### Passage 4
 
@@ -980,23 +589,12 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > But it isn’t just students who would benefit from a later start. Kelley says the working day should be more forgiving of our natural rhythms. Describing the average sleep loss per night for different age groups, he says: “Between 14 and 24, it’s more than two hours. For people aged between 24 and about 30 or 35, it’s about an hour and a half. That can continue up until you’re about 55 when it’s in balance again. The 10-year-old and 55-year-old wake and sleep naturally at the same time.”
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+7 sentences, 127 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What does Kelley say about the relationship between working hours and natural rhythms?
-
-**Gold answer:** The working day should be adjusted to our natural rhythms
-
-**Predicted answer:** the working day should be more forgiving (f1=0.59, conf=0.588)
-
-**Entropy:** sent_entropy_norm=0.733, tok_entropy_norm=0.543, combined=0.638 (sent_entropy=1.425, tok_entropy=2.629, num_sentences=7)
-
-**Answer-sentence attention:** share=0.011, rank=6/7 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** the working day should be more forgiving of our natural rhythms (conf=0.200)
-
-**Probe entropy:** sent_entropy_norm=0.749, tok_entropy_norm=0.522, combined=0.635
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What does Kelley say about the relationship between working hours and natural rhythms? | The working day should be adjusted to our natural rhythms | the working day should be more forgiving | 0.59 | 0.733 | 0.433 | 0.543 | 0.038 |
+| probe | What is the main topic of the passage? | -- | the working day should be more forgiving of our natural rhythms | -- | 0.749 | 0.454 | 0.522 | 0.035 |
 
 ### Passage 5
 
@@ -1004,33 +602,13 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > Huber said about Amazon: “I have heard them say that many packages are lightweight – a drone can carry a kilogram for 15 minutes. If you have a vehicle that can go into a neighborhood, it can deliver from that base. You need a 15-minute distance and typical off-the-shelf drones have about that distance.” It’s one way, he said, of making sure the surrounding population is relatively safe. “The larger the distance the drone travels, the more dangerous it becomes.” Of course, safety remains a major concern – Singh points out that, for a commercial aircraft to be considered skyworthy, it has to prove a rate of one serious failure every one million hours. Drones, he said, are “one or two orders of magnitude away” from that benchmark. “The Reaper drone has one failure in 10,000 hours,” Singh said. An oil leak, by the way, doesn’t count as catastrophic failure – something has to fall out of the sky.
 
-(2/3 of this passage's questions were captured_correct -- only those are shown below)
+9 sentences, 216 tokens. 2/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What happens as you increase the distance a drone travels to deliver a package?
-
-**Gold answer:** The drone becomes more dangerous to people
-
-**Predicted answer:** the more dangerous (f1=0.60, conf=0.405)
-
-**Entropy:** sent_entropy_norm=0.917, tok_entropy_norm=0.737, combined=0.827 (sent_entropy=2.015, tok_entropy=3.960, num_sentences=9)
-
-**Answer-sentence attention:** share=0.133, rank=6/9 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** What determines if a passenger plane is allowed to operate?
-
-**Gold answer:** The number of serious failures every one million hours
-
-**Predicted answer:** one serious failure every one million hours (f1=0.63, conf=0.406)
-
-**Entropy:** sent_entropy_norm=0.948, tok_entropy_norm=0.716, combined=0.832 (sent_entropy=2.084, tok_entropy=3.847, num_sentences=9)
-
-**Answer-sentence attention:** share=0.182, rank=1/9 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** safety (conf=0.558)
-
-**Probe entropy:** sent_entropy_norm=0.924, tok_entropy_norm=0.620, combined=0.772
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What happens as you increase the distance a drone travels to deliver a package? | The drone becomes more dangerous to people | the more dangerous | 0.60 | 0.917 | 0.750 | 0.737 | 0.077 |
+| 2 | What determines if a passenger plane is allowed to operate? | The number of serious failures every one million hours | one serious failure every one million hours | 0.63 | 0.948 | 0.818 | 0.716 | 0.081 |
+| probe | What is the main topic of the passage? | -- | safety | -- | 0.924 | 0.774 | 0.620 | 0.056 |
 
 ### Passage 6
 
@@ -1038,25 +616,14 @@ Avg over 6 captured=Y question(s): sent_entropy_norm=0.830, tok_entropy_norm=0.6
 
 > The loans Duran swindled from banks were his way of regulating and denouncing this situation, he said. He started slowly. “I filled out a few credit applications with my real details. They denied me, but I just wanted to get a feel for what they were asking for.” From there, the former table-tennis coach began to weave an intricate web of accounts, payments and transfers. “I was learning constantly.” By the summer of 2007, he had discovered how to make the system work, applying for loans under the name of a false television production company. “Then, I managed to get a lot.” €492,000, to be exact.
 
-(1/3 of this passage's questions were captured_correct -- only those are shown below)
+9 sentences, 144 tokens. 1/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** How much money did Duran manage to take out in loans?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | How much money did Duran manage to take out in loans? | €492,000 in total | €492,000 | 0.50 | 0.925 | 0.758 | 0.682 | 0.092 |
+| probe | What is the main topic of the passage? | -- | learning | -- | 0.926 | 0.763 | 0.681 | 0.096 |
 
-**Gold answer:** €492,000 in total
-
-**Predicted answer:** €492,000 (f1=0.50, conf=0.997)
-
-**Entropy:** sent_entropy_norm=0.925, tok_entropy_norm=0.682, combined=0.804 (sent_entropy=2.032, tok_entropy=3.391, num_sentences=9)
-
-**Answer-sentence attention:** share=0.171, rank=2/9 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** learning (conf=0.059)
-
-**Probe entropy:** sent_entropy_norm=0.926, tok_entropy_norm=0.681, combined=0.803
-
-Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.656, combined=0.754 (probe combined avg=0.700); answer_sentence_attention_share=0.138, answer_sentence_rank=4.00 (n_located=7)
+Avg over 7 captured=Y question(s) -- sentence: entropy_norm=0.852, pr_norm=0.651, top1=0.269, top2=0.493, top3=0.686; token: entropy_norm=0.656, pr_norm=0.068, top5=0.585, top10=0.679, top15=0.718
 
 ## SQuAD / N/A
 
@@ -1068,53 +635,15 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > Although sizable Orthodox Jewish communities are located throughout the United States, many American Orthodox Jews live in New York State, particularly in the New York City Metropolitan Area. Two of the main Orthodox communities in the United States are located in New York City and Rockland County. In New York City, the neighborhoods of Borough Park, Midwood, Williamsburg, and Crown Heights, located in the borough of Brooklyn, have particularly large Orthodox communities. The most rapidly growing community of American Orthodox Jews is located in Rockland County and the Hudson Valley of New York, including the communities of Monsey, Monroe, New Square, and Kiryas Joel. There are also sizable and rapidly growing Orthodox communities throughout New Jersey, particularly in Lakewood, Teaneck, Englewood, Passaic, and Fair Lawn.
 
-(4/4 of this passage's questions were captured_correct -- only those are shown below)
+5 sentences, 161 tokens. 4/4 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Borough Park, Midwood, Williamsburg and Crown heights have particularly large communities of what?
-
-**Gold answer:** American Orthodox Jews
-
-**Predicted answer:** American Orthodox Jews (f1=1.00, conf=0.432)
-
-**Entropy:** sent_entropy_norm=0.990, tok_entropy_norm=0.561, combined=0.775 (sent_entropy=1.593, tok_entropy=2.851, num_sentences=5)
-
-**Answer-sentence attention:** share=0.176, rank=4/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** Where is a sizeable and rapidly growing Orthodox community currently located besides New York State?
-
-**Gold answer:** New Jersey
-
-**Predicted answer:** New Jersey (f1=1.00, conf=0.984)
-
-**Entropy:** sent_entropy_norm=0.911, tok_entropy_norm=0.636, combined=0.773 (sent_entropy=1.466, tok_entropy=3.231, num_sentences=5)
-
-**Answer-sentence attention:** share=0.270, rank=2/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** Where is the most rapidly growing community of American orthodox jews located?
-
-**Gold answer:** Rockland County
-
-**Predicted answer:** Rockland County (f1=1.00, conf=0.360)
-
-**Entropy:** sent_entropy_norm=0.856, tok_entropy_norm=0.523, combined=0.690 (sent_entropy=1.378, tok_entropy=2.656, num_sentences=5)
-
-**Answer-sentence attention:** share=0.007, rank=5/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 4:** Where do many American Orthodox Jews live?
-
-**Gold answer:** New York State
-
-**Predicted answer:** New York State (f1=1.00, conf=0.861)
-
-**Entropy:** sent_entropy_norm=0.847, tok_entropy_norm=0.642, combined=0.744 (sent_entropy=1.363, tok_entropy=3.261, num_sentences=5)
-
-**Answer-sentence attention:** share=0.071, rank=4/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** Orthodox (conf=0.111)
-
-**Probe entropy:** sent_entropy_norm=0.733, tok_entropy_norm=0.387, combined=0.560
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Borough Park, Midwood, Williamsburg and Crown heights have particularly large communities of what? | American Orthodox Jews | American Orthodox Jews | 1.00 | 0.990 | 0.957 | 0.561 | 0.047 |
+| 2 | Where is a sizeable and rapidly growing Orthodox community currently located besides New York State? | New Jersey | New Jersey | 1.00 | 0.911 | 0.766 | 0.636 | 0.060 |
+| 3 | Where is the most rapidly growing community of American orthodox jews located? | Rockland County | Rockland County | 1.00 | 0.856 | 0.682 | 0.523 | 0.041 |
+| 4 | Where do many American Orthodox Jews live? | New York State | New York State | 1.00 | 0.847 | 0.635 | 0.642 | 0.050 |
+| probe | What is the main topic of the passage? | -- | Orthodox | -- | 0.733 | 0.524 | 0.387 | 0.019 |
 
 ### Passage 2
 
@@ -1122,43 +651,14 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > These areas, quartiers sensibles ("sensitive quarters"), are in northern and eastern Paris, namely around its Goutte d'Or and Belleville neighbourhoods. To the north of the city they are grouped mainly in the Seine-Saint-Denis department, and to a lesser extreme to the east in the Val-d'Oise department. Other difficult areas are located in the Seine valley, in Évry et Corbeil-Essonnes (Essonne), in Mureaux, Mantes-la-Jolie (Yvelines), and scattered among social housing districts created by Delouvrier's 1961 "ville nouvelle" political initiative.
 
-(3/3 of this passage's questions were captured_correct -- only those are shown below)
+3 sentences, 141 tokens. 3/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Where are the quartiers sensibles located?
-
-**Gold answer:** northern and eastern Paris
-
-**Predicted answer:** northern and eastern Paris (f1=1.00, conf=0.958)
-
-**Entropy:** sent_entropy_norm=0.997, tok_entropy_norm=0.598, combined=0.797 (sent_entropy=1.095, tok_entropy=2.959, num_sentences=3)
-
-**Answer-sentence attention:** share=0.328, rank=2/3 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** What two neighborhoods are the centers of the quartiers sensibles?
-
-**Gold answer:** Goutte d'Or and Belleville
-
-**Predicted answer:** Goutte d'Or and Belleville (f1=1.00, conf=0.997)
-
-**Entropy:** sent_entropy_norm=0.992, tok_entropy_norm=0.626, combined=0.809 (sent_entropy=1.090, tok_entropy=3.100, num_sentences=3)
-
-**Answer-sentence attention:** share=0.328, rank=2/3 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** Why were these neighborhoods created?
-
-**Gold answer:** Delouvrier's 1961 "ville nouvelle" political initiative
-
-**Predicted answer:** Delouvrier's 1961 "ville nouvelle" political initiative (f1=1.00, conf=0.518)
-
-**Entropy:** sent_entropy_norm=0.843, tok_entropy_norm=0.603, combined=0.723 (sent_entropy=0.926, tok_entropy=2.983, num_sentences=3)
-
-**Answer-sentence attention:** share=0.572, rank=1/3 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** difficult (conf=0.073)
-
-**Probe entropy:** sent_entropy_norm=0.982, tok_entropy_norm=0.460, combined=0.721
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Where are the quartiers sensibles located? | northern and eastern Paris | northern and eastern Paris | 1.00 | 0.997 | 0.989 | 0.598 | 0.045 |
+| 2 | What two neighborhoods are the centers of the quartiers sensibles? | Goutte d'Or and Belleville | Goutte d'Or and Belleville | 1.00 | 0.992 | 0.974 | 0.626 | 0.048 |
+| 3 | Why were these neighborhoods created? | Delouvrier's 1961 "ville nouvelle" political initiative | Delouvrier's 1961 "ville nouvelle" political initiative | 1.00 | 0.843 | 0.635 | 0.603 | 0.039 |
+| probe | What is the main topic of the passage? | -- | difficult | -- | 0.982 | 0.939 | 0.460 | 0.027 |
 
 ### Passage 3
 
@@ -1166,63 +666,16 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > When Emperor Kammu moved the capital to Heian-kyō (Kyōto), which remained the imperial capital for the next 1,000 years, he did so not only to strengthen imperial authority but also to improve his seat of government geopolitically. Nara was abandoned after only 70 years in part due to the ascendancy of Dōkyō and the encroaching secular power of the Buddhist institutions there. Kyōto had good river access to the sea and could be reached by land routes from the eastern provinces. The early Heian period (784–967) continued Nara culture; the Heian capital was patterned on the Chinese Tang capital at Chang'an, as was Nara, but on a larger scale than Nara. Kammu endeavoured to improve the Tang-style administrative system which was in use. Known as the ritsuryō, this system attempted to recreate the Tang imperium in Japan, despite the "tremendous differences in the levels of development between the two countries". Despite the decline of the Taika-Taihō reforms, imperial government was vigorous during the early Heian period. Indeed, Kammu's avoidance of drastic reform decreased the intensity of political struggles, and he became recognized as one of Japan's most forceful emperors.
 
-(5/5 of this passage's questions were captured_correct -- only those are shown below)
+8 sentences, 262 tokens. 5/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** Heian was Japan's capital for how many years?
-
-**Gold answer:** 1,000
-
-**Predicted answer:** 1,000 (f1=1.00, conf=0.817)
-
-**Entropy:** sent_entropy_norm=0.949, tok_entropy_norm=0.712, combined=0.830 (sent_entropy=1.974, tok_entropy=3.963, num_sentences=8)
-
-**Answer-sentence attention:** share=0.212, rank=1/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** Nara was the former capital for how many years?
-
-**Gold answer:** 70
-
-**Predicted answer:** 70 (f1=1.00, conf=0.897)
-
-**Entropy:** sent_entropy_norm=0.949, tok_entropy_norm=0.680, combined=0.814 (sent_entropy=1.973, tok_entropy=3.786, num_sentences=8)
-
-**Answer-sentence attention:** share=0.050, rank=7/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** What religion was gaining popularity in Nara?
-
-**Gold answer:** Buddhist
-
-**Predicted answer:** Buddhist (f1=1.00, conf=0.999)
-
-**Entropy:** sent_entropy_norm=0.967, tok_entropy_norm=0.747, combined=0.857 (sent_entropy=2.011, tok_entropy=4.157, num_sentences=8)
-
-**Answer-sentence attention:** share=0.049, rank=8/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 4:** What time period was the early Heian era?
-
-**Gold answer:** 784–967
-
-**Predicted answer:** 784–967 (f1=1.00, conf=0.985)
-
-**Entropy:** sent_entropy_norm=0.922, tok_entropy_norm=0.625, combined=0.773 (sent_entropy=1.917, tok_entropy=3.480, num_sentences=8)
-
-**Answer-sentence attention:** share=0.125, rank=6/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 5:** Kanmu modeled his government after what Chinese capital?
-
-**Gold answer:** Tang
-
-**Predicted answer:** Tang (f1=1.00, conf=0.913)
-
-**Entropy:** sent_entropy_norm=0.932, tok_entropy_norm=0.689, combined=0.810 (sent_entropy=1.937, tok_entropy=3.839, num_sentences=8)
-
-**Answer-sentence attention:** share=0.191, rank=1/8 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** improve his seat of government (conf=0.137)
-
-**Probe entropy:** sent_entropy_norm=0.938, tok_entropy_norm=0.667, combined=0.803
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Heian was Japan's capital for how many years? | 1,000 | 1,000 | 1.00 | 0.949 | 0.820 | 0.712 | 0.059 |
+| 2 | Nara was the former capital for how many years? | 70 | 70 | 1.00 | 0.949 | 0.817 | 0.680 | 0.050 |
+| 3 | What religion was gaining popularity in Nara? | Buddhist | Buddhist | 1.00 | 0.967 | 0.873 | 0.747 | 0.067 |
+| 4 | What time period was the early Heian era? | 784–967 | 784–967 | 1.00 | 0.922 | 0.773 | 0.625 | 0.042 |
+| 5 | Kanmu modeled his government after what Chinese capital? | Tang | Tang | 1.00 | 0.932 | 0.796 | 0.689 | 0.058 |
+| probe | What is the main topic of the passage? | -- | improve his seat of government | -- | 0.938 | 0.808 | 0.667 | 0.047 |
 
 ### Passage 4
 
@@ -1230,43 +683,14 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > Switzerland has a dense network of cities, where large, medium and small cities are complementary. The plateau is very densely populated with about 450 people per km2 and the landscape continually shows signs of human presence. The weight of the largest metropolitan areas, which are Zürich, Geneva–Lausanne, Basel and Bern tend to increase. In international comparison the importance of these urban areas is stronger than their number of inhabitants suggests. In addition the two main centers of Zürich and Geneva are recognized for their particularly great quality of life.
 
-(3/3 of this passage's questions were captured_correct -- only those are shown below)
+5 sentences, 110 tokens. 3/3 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What is the population density of the plateau?
-
-**Gold answer:** 450 people per km2
-
-**Predicted answer:** 450 people per km2 (f1=1.00, conf=0.881)
-
-**Entropy:** sent_entropy_norm=0.939, tok_entropy_norm=0.573, combined=0.756 (sent_entropy=1.511, tok_entropy=2.692, num_sentences=5)
-
-**Answer-sentence attention:** share=0.223, rank=4/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** Which 2 centers are recognized for their particularly great quality of life?
-
-**Gold answer:** Zürich and Geneva
-
-**Predicted answer:** Zürich and Geneva (f1=1.00, conf=0.988)
-
-**Entropy:** sent_entropy_norm=0.952, tok_entropy_norm=0.594, combined=0.773 (sent_entropy=1.532, tok_entropy=2.790, num_sentences=5)
-
-**Answer-sentence attention:** share=0.370, rank=1/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** What does the weight of the largest metropolitan areas tend to do?
-
-**Gold answer:** increase
-
-**Predicted answer:** increase (f1=1.00, conf=0.933)
-
-**Entropy:** sent_entropy_norm=0.995, tok_entropy_norm=0.564, combined=0.780 (sent_entropy=1.601, tok_entropy=2.653, num_sentences=5)
-
-**Answer-sentence attention:** share=0.248, rank=1/5 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** the landscape continually shows signs of human presence (conf=0.061)
-
-**Probe entropy:** sent_entropy_norm=0.900, tok_entropy_norm=0.444, combined=0.672
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What is the population density of the plateau? | 450 people per km2 | 450 people per km2 | 1.00 | 0.939 | 0.839 | 0.573 | 0.054 |
+| 2 | Which 2 centers are recognized for their particularly great quality of life? | Zürich and Geneva | Zürich and Geneva | 1.00 | 0.952 | 0.808 | 0.594 | 0.079 |
+| 3 | What does the weight of the largest metropolitan areas tend to do? | increase | increase | 1.00 | 0.995 | 0.979 | 0.564 | 0.063 |
+| probe | What is the main topic of the passage? | -- | the landscape continually shows signs of human presence | -- | 0.900 | 0.781 | 0.444 | 0.038 |
 
 ### Passage 5
 
@@ -1274,63 +698,16 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > In 1937, IBM's tabulating equipment enabled organizations to process unprecedented amounts of data, its clients including the U.S. Government, during its first effort to maintain the employment records for 26 million people pursuant to the Social Security Act, and the Third Reich, largely through the German subsidiary Dehomag. During the Second World War the company produced small arms for the American war effort (M1 Carbine, and Browning Automatic Rifle). IBM provided translation services for the Nuremberg Trials. In 1947, IBM opened its first office in Bahrain, as well as an office in Saudi Arabia to service the needs of the Arabian-American Oil Company that would grow to become Saudi Business Machines (SBM).
 
-(5/5 of this passage's questions were captured_correct -- only those are shown below)
+6 sentences, 141 tokens. 5/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What what was the name of the subsidiary working in Germany during World War 2?
-
-**Gold answer:** Dehomag
-
-**Predicted answer:** Dehomag (f1=1.00, conf=1.000)
-
-**Entropy:** sent_entropy_norm=0.770, tok_entropy_norm=0.611, combined=0.691 (sent_entropy=1.380, tok_entropy=3.023, num_sentences=6)
-
-**Answer-sentence attention:** share=0.362, rank=1/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** Records for how many people were maintained by IBM in 1937?
-
-**Gold answer:** 26 million
-
-**Predicted answer:** 26 million (f1=1.00, conf=0.820)
-
-**Entropy:** sent_entropy_norm=0.777, tok_entropy_norm=0.607, combined=0.692 (sent_entropy=1.392, tok_entropy=3.002, num_sentences=6)
-
-**Answer-sentence attention:** share=0.365, rank=1/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** What service did IBM provide for the Nuremberg Trials?
-
-**Gold answer:** translation services
-
-**Predicted answer:** translation (f1=0.67, conf=0.505)
-
-**Entropy:** sent_entropy_norm=0.641, tok_entropy_norm=0.521, combined=0.581 (sent_entropy=1.148, tok_entropy=2.578, num_sentences=6)
-
-**Answer-sentence attention:** share=0.484, rank=1/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 4:** What year did IBM open its first office in Bahrain?
-
-**Gold answer:** 1947
-
-**Predicted answer:** 1947 (f1=1.00, conf=1.000)
-
-**Entropy:** sent_entropy_norm=0.734, tok_entropy_norm=0.567, combined=0.651 (sent_entropy=1.316, tok_entropy=2.806, num_sentences=6)
-
-**Answer-sentence attention:** share=0.270, rank=3/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 5:** What was the eventual name of the company that IBM operated in Saudi Arabia?
-
-**Gold answer:** Saudi Business Machines
-
-**Predicted answer:** Saudi Business Machines (f1=1.00, conf=0.631)
-
-**Entropy:** sent_entropy_norm=0.754, tok_entropy_norm=0.556, combined=0.655 (sent_entropy=1.351, tok_entropy=2.754, num_sentences=6)
-
-**Answer-sentence attention:** share=0.197, rank=3/6 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** employment records for 26 million people pursuant to the Social Security Act (conf=0.107)
-
-**Probe entropy:** sent_entropy_norm=0.629, tok_entropy_norm=0.412, combined=0.521
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What what was the name of the subsidiary working in Germany during World War 2? | Dehomag | Dehomag | 1.00 | 0.770 | 0.501 | 0.611 | 0.033 |
+| 2 | Records for how many people were maintained by IBM in 1937? | 26 million | 26 million | 1.00 | 0.777 | 0.503 | 0.607 | 0.032 |
+| 3 | What service did IBM provide for the Nuremberg Trials? | translation services | translation | 0.67 | 0.641 | 0.346 | 0.521 | 0.028 |
+| 4 | What year did IBM open its first office in Bahrain? | 1947 | 1947 | 1.00 | 0.734 | 0.477 | 0.567 | 0.031 |
+| 5 | What was the eventual name of the company that IBM operated in Saudi Arabia? | Saudi Business Machines | Saudi Business Machines | 1.00 | 0.754 | 0.481 | 0.556 | 0.028 |
+| probe | What is the main topic of the passage? | -- | employment records for 26 million people pursuant to the Social Security Act | -- | 0.629 | 0.336 | 0.412 | 0.016 |
 
 ### Passage 6
 
@@ -1338,43 +715,14 @@ Avg over 7 captured=Y question(s): sent_entropy_norm=0.852, tok_entropy_norm=0.6
 
 > The College Dropout was eventually issued by Roc-A-Fella in February 2004, shooting to number two on the Billboard 200 as his debut single, "Through the Wire" peaked at number fifteen on the Billboard Hot 100 chart for five weeks. "Slow Jamz", his second single featuring Twista and Jamie Foxx, became an even bigger success: it became the three musicians' first number one hit. The College Dropout received near-universal critical acclaim from contemporary music critics, was voted the top album of the year by two major music publications, and has consistently been ranked among the great hip-hop works and debut albums by artists. "Jesus Walks", the album's fourth single, perhaps exposed West to a wider audience; the song's subject matter concerns faith and Christianity. The song nevertheless reached the top 20 of the Billboard pop charts, despite industry executives' predictions that a song containing such blatant declarations of faith would never make it to radio. The College Dropout would eventually be certified triple platinum in the US, and garnered West 10 Grammy nominations, including Album of the Year, and Best Rap Album (which it received). During this period, West also founded GOOD Music, a record label and management company that would go on to house affiliate artists and producers, such as No I.D. and John Legend. At the time, the focal point of West's production style was the use of sped-up vocal samples from soul records. However, partly because of the acclaim of The College Dropout, such sampling had been much copied by others; with that overuse, and also because West felt he had become too dependent on the technique, he decided to find a new sound.
 
-(3/5 of this passage's questions were captured_correct -- only those are shown below)
+11 sentences, 341 tokens. 3/5 of this passage's questions were captured_correct -- only those are shown below, plus a fixed topic-probe question for comparison (no gold answer, so no f1).
 
-**Question 1:** What was the name of the single off the debut album that gave Kanye mainstream attention?
+| # | question | gold | pred | f1 | sent_entropy_norm | sent_pr_norm | tok_entropy_norm | tok_pr_norm |
+|---|---|---|---|---|---|---|---|---|
+| 1 | What was the name of the single off the debut album that gave Kanye mainstream attention? | Jesus Walks | Jesus Walks | 1.00 | 0.869 | 0.626 | 0.718 | 0.051 |
+| 2 | What label did Kanye create following the success of his first album's release? | GOOD Music | GOOD Music | 1.00 | 0.893 | 0.690 | 0.732 | 0.057 |
+| 3 | When was The College Dropout finally released? | February 2004 | February 2004 | 1.00 | 0.848 | 0.599 | 0.608 | 0.033 |
+| probe | What is the main topic of the passage? | -- | faith and Christianity | -- | 0.848 | 0.584 | 0.693 | 0.046 |
 
-**Gold answer:** Jesus Walks
-
-**Predicted answer:** Jesus Walks (f1=1.00, conf=0.594)
-
-**Entropy:** sent_entropy_norm=0.869, tok_entropy_norm=0.718, combined=0.794 (sent_entropy=2.085, tok_entropy=4.186, num_sentences=11)
-
-**Answer-sentence attention:** share=0.164, rank=2/11 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 2:** What label did Kanye create following the success of his first album's release?
-
-**Gold answer:** GOOD Music
-
-**Predicted answer:** GOOD Music (f1=1.00, conf=0.997)
-
-**Entropy:** sent_entropy_norm=0.893, tok_entropy_norm=0.732, combined=0.812 (sent_entropy=2.141, tok_entropy=4.269, num_sentences=11)
-
-**Answer-sentence attention:** share=0.133, rank=3/11 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Question 3:** When was The College Dropout finally released?
-
-**Gold answer:** February 2004
-
-**Predicted answer:** February 2004 (f1=1.00, conf=0.992)
-
-**Entropy:** sent_entropy_norm=0.848, tok_entropy_norm=0.608, combined=0.728 (sent_entropy=2.034, tok_entropy=3.545, num_sentences=11)
-
-**Answer-sentence attention:** share=0.098, rank=6/11 -- how much attention mass landed on the sentence containing the model's own predicted answer, and its rank among all sentences (1 = most-attended sentence IS the answer sentence).
-
-**Probe question:** What is the main topic of the passage?
-
-**Probe predicted answer:** faith and Christianity (conf=0.837)
-
-**Probe entropy:** sent_entropy_norm=0.848, tok_entropy_norm=0.693, combined=0.770
-
-Avg over 23 captured=Y question(s): sent_entropy_norm=0.884, tok_entropy_norm=0.621, combined=0.753 (probe combined avg=0.674); answer_sentence_attention_share=0.230, answer_sentence_rank=3.00 (n_located=23)
+Avg over 23 captured=Y question(s) -- sentence: entropy_norm=0.884, pr_norm=0.720, top1=0.302, top2=0.548, top3=0.734; token: entropy_norm=0.621, pr_norm=0.048, top5=0.641, top10=0.700, top15=0.735
 
