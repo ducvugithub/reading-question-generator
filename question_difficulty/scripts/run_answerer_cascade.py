@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
 Cascade experiment: run a lineup of Answerers (weak -> strong, local ->
-remote) over sampled OneStopQA/RACE items, and correlate each one's
-accuracy against the IRT (Rasch) item difficulty from
-question_difficulty_with_irt.ipynb (real human response data).
+remote) over sampled OneStopQA/RACE items. Records each candidate's raw
+(letter, confidence) per item ONLY -- no correctness scoring here, see
+score_cascade_results.py for that (cheap, local, pure string matching --
+doesn't need this script's models loaded at all, so it's kept separate).
 
 Candidates, roughly weakest -> strongest (see question_answering/answerer.py):
-  extractive          LocalExtractiveAnswerer(deepset/roberta-base-squad2) -- BERT-family span extraction
-  qwen05_<precision>   LocalDecoderAnswerer(Qwen2.5-0.5B-Instruct)         -- small local decoder
-  falcon1b_<precision> LocalDecoderAnswerer(tiiuae/Falcon3-1B-Instruct)    -- small local decoder, different family
-  qwen15_<precision>   LocalDecoderAnswerer(Qwen2.5-1.5B-Instruct)         -- bigger local decoder
-  haiku                ClaudeBedrockAnswerer(Haiku, via Bedrock)          -- remote, real cost per item
-  opus                 ClaudeBedrockAnswerer(Opus, via Bedrock) -- --include-opus -- remote, real cost per item, opt-in only
+  extractive               LocalExtractiveAnswerer(deepset/roberta-base-squad2)     -- BERT-family span extraction
+  smollm2_135m_<precision> LocalDecoderAnswerer(SmolLM2-135M-Instruct)              -- tiny local decoder
+  smollm2_360m_<precision> LocalDecoderAnswerer(SmolLM2-360M-Instruct)              -- tiny local decoder
+  qwen05_<precision>       LocalDecoderAnswerer(Qwen2.5-0.5B-Instruct)              -- small local decoder
+  falcon1b_<precision>     LocalDecoderAnswerer(tiiuae/Falcon3-1B-Instruct)         -- small local decoder, different family
+  qwen15_<precision>       LocalDecoderAnswerer(Qwen2.5-1.5B-Instruct)              -- bigger local decoder
+  haiku                    ClaudeBedrockAnswerer(Haiku, via Bedrock)                -- remote, real cost per item
+  opus                     ClaudeBedrockAnswerer(Opus, via Bedrock) -- --include-opus -- remote, real cost per item, opt-in only
 
-Each local decoder model is loaded once per entry in --precisions
-(default "fp16" -- cheapest/fastest, for validating the script itself
-before a heavier run), so e.g. --precisions fp16,fp32 doubles the number
-of decoder candidates (qwen05_fp16, qwen05_fp32, ...) to let you compare
+Each local decoder model runs once per entry in --precisions (default
+"fp16" -- cheapest/fastest, for validating the script itself before a
+heavier run), so e.g. --precisions fp16,fp32 doubles the number of
+decoder candidates (qwen05_fp16, qwen05_fp32, ...) to let you compare
 precision vs. accuracy directly. "int8"/"int4" need bitsandbytes + a CUDA
 GPU (see question_answering/qa_model.py's DecoderOnlyQAModel) -- they
 raise a clear error on this project's Apple Silicon dev machines; run
@@ -25,6 +28,15 @@ Roihu instead. Only float32 is confirmed NaN-free end-to-end (see
 DecoderOnlyQAModel's docstring for the fp16+eager NaN bug this avoids) --
 fp16 is confirmed safe for the generation path this script uses
 (predict_multiple_choice_answer, which never touches eager attention).
+
+Candidates are loaded and run ONE AT A TIME -- fully processes every
+sampled item for one candidate, unloads it (frees GPU/CPU memory), THEN
+loads the next. This bounds peak memory to whichever single model is
+currently loaded, regardless of how many precisions/models you sweep --
+important on a real GPU with fixed VRAM (a V100 does not have room for
+all 12 decoder-precision combos loaded simultaneously; this project's
+Mac happened to tolerate it via unified memory, which is what let this
+go unnoticed locally).
 
 Mistral-7B / Falcon-7B are NOT included here -- too large for this
 machine's 18GB RAM; run those on Roihu with their own Answerer instances
@@ -43,6 +55,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import random
 import sys
@@ -83,61 +96,95 @@ def load_items() -> dict:
 
 
 DECODER_MODELS = [
+    ("smollm2_135m", "HuggingFaceTB/SmolLM2-135M-Instruct"),
+    ("smollm2_360m", "HuggingFaceTB/SmolLM2-360M-Instruct"),
     ("qwen05", "Qwen/Qwen2.5-0.5B-Instruct"),
     ("falcon1b", "tiiuae/Falcon3-1B-Instruct"),
     ("qwen15", "Qwen/Qwen2.5-1.5B-Instruct"),
 ]
 
 
-def build_candidates(precisions: list[str], include_opus: bool, skip_remote: bool,
-                      aws_profile: str, aws_region: str) -> list[tuple[str, object]]:
-    """Returns [(name, Answerer), ...] -- loaded lazily, one at a time, so
-    peak memory stays at whichever single local model is currently loaded
-    plus whatever's already been loaded before it (all fit comfortably in
-    18GB, but this keeps things simple and matches how the notebooks do it).
-    Each entry in DECODER_MODELS is loaded once per precision in
-    `precisions` (see module docstring).
-
-    skip_remote: drop the Bedrock tiers entirely -- SLURM compute nodes
-    (e.g. Roihu) typically have no internet egress, so a Bedrock call
-    would just hang/fail there; the point of running there is the local
-    GPU precision sweep (int8/int4), not the remote tiers anyway."""
+def candidate_specs(precisions: list[str], include_opus: bool, skip_remote: bool,
+                     aws_profile: str, aws_region: str) -> list[tuple[str, callable]]:
+    """Returns [(name, load_fn), ...] -- load_fn() constructs (and loads
+    the weights for) that one Answerer when called, nothing is loaded yet.
+    The caller is responsible for calling load_fn(), using the result, then
+    releasing it before moving to the next entry (see run_cascade)."""
     from question_answering.qa_model import DecoderOnlyQAModel, ExtractiveQAModel
     from question_answering.answerer import ClaudeBedrockAnswerer, LocalDecoderAnswerer, LocalExtractiveAnswerer
 
-    candidates = []
-
-    print("loading extractive (deepset/roberta-base-squad2)...")
-    candidates.append(("extractive", LocalExtractiveAnswerer(ExtractiveQAModel("deepset/roberta-base-squad2"))))
+    specs = [("extractive", lambda: LocalExtractiveAnswerer(ExtractiveQAModel("deepset/roberta-base-squad2")))]
 
     for name, model_id in DECODER_MODELS:
         for precision in precisions:
-            print(f"loading {name}_{precision} ({model_id}, precision={precision})...")
-            candidates.append((f"{name}_{precision}",
-                                LocalDecoderAnswerer(DecoderOnlyQAModel(model_id, precision=precision))))
+            specs.append((f"{name}_{precision}",
+                          lambda model_id=model_id, precision=precision:
+                              LocalDecoderAnswerer(DecoderOnlyQAModel(model_id, precision=precision))))
 
     if skip_remote:
-        return candidates
+        return specs
 
-    print("loading haiku (Bedrock)...")
-    candidates.append(("haiku", ClaudeBedrockAnswerer(
-        model="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        aws_region=aws_region, aws_profile=aws_profile,
+    specs.append(("haiku", lambda: ClaudeBedrockAnswerer(
+        model="eu.anthropic.claude-haiku-4-5-20251001-v1:0", aws_region=aws_region, aws_profile=aws_profile,
     )))
-
     if include_opus:
-        print("loading opus (Bedrock)...")
-        candidates.append(("opus", ClaudeBedrockAnswerer(
-            model="eu.anthropic.claude-opus-4-8",
-            aws_region=aws_region, aws_profile=aws_profile,
+        specs.append(("opus", lambda: ClaudeBedrockAnswerer(
+            model="eu.anthropic.claude-opus-4-8", aws_region=aws_region, aws_profile=aws_profile,
         )))
 
-    return candidates
+    return specs
+
+
+def _release(answerer) -> None:
+    """Frees a local model's weights (no-op for remote answerers, which
+    hold no local memory)."""
+    model = getattr(answerer, "model", None)
+    if model is not None:
+        del model
+    del answerer
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+    except ImportError:
+        pass
+
+
+def run_cascade(items: dict, sample_ids: list[str], specs: list[tuple[str, callable]],
+                 output_path: Path) -> dict:
+    """One candidate fully loaded and run over every sampled item at a
+    time, then released, before the next candidate loads -- see module
+    docstring for why (peak memory = one model, not sum of all of them).
+    Results are item-keyed (not candidate-keyed) so run_cascade can be
+    called multiple times against the same output file (e.g. once on
+    Roihu for the local decoders, once locally for Haiku) and merged --
+    see score_cascade_results.py's merge step."""
+    results = json.loads(output_path.read_text()) if output_path.exists() else {}
+    for item_id in sample_ids:
+        results.setdefault(item_id, {"difficulty": items[item_id]["difficulty"], "answers": {}})
+
+    for name, load_fn in specs:
+        print(f"loading {name}...")
+        answerer = load_fn()
+
+        for i, item_id in enumerate(sample_ids):
+            it = items[item_id]
+            letter, confidence = answerer.answer(it["passage"], it["question"], it["options"])
+            results[item_id]["answers"][name] = {"letter": letter, "confidence": confidence}
+            if (i + 1) % 10 == 0 or (i + 1) == len(sample_ids):
+                print(f"  [{name}] {i+1}/{len(sample_ids)} done")
+
+        output_path.write_text(json.dumps(results, indent=2))
+        print(f"  {name} done, checkpoint saved to {output_path}")
+        _release(answerer)
+
+    return results
 
 
 def main() -> None:
-    from data_processing import _texts_match
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-items", type=int, default=10)
     parser.add_argument("--seed", type=int, default=0)
@@ -159,31 +206,12 @@ def main() -> None:
     sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
 
     precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
-    candidates = build_candidates(precisions, args.include_opus, args.skip_remote, args.aws_profile, args.aws_region)
-    print(f"\ncascade: {[name for name, _ in candidates]}\n")
+    specs = candidate_specs(precisions, args.include_opus, args.skip_remote, args.aws_profile, args.aws_region)
+    print(f"cascade: {[name for name, _ in specs]}\n")
 
-    results = {}
-    output_path = Path(args.output)
-    for i, item_id in enumerate(sample_ids):
-        it = items[item_id]
-        row = {"difficulty": it["difficulty"], "answers": {}}
-        for name, answerer in candidates:
-            letter, confidence = answerer.answer(it["passage"], it["question"], it["options"])
-            predicted_text = it["options"]["ABCD".index(letter)] if letter else None
-            is_correct = _texts_match(predicted_text, it["correct_answer_text"]) if predicted_text else False
-            row["answers"][name] = {"letter": letter, "confidence": confidence, "is_correct": is_correct}
-        results[item_id] = row
-
-        print(f"[{i+1}/{len(sample_ids)}] {item_id}  (difficulty={it['difficulty']:+.3f})  "
-              + "  ".join(f"{name}={'Y' if row['answers'][name]['is_correct'] else 'N'}" for name, _ in candidates))
-
-        output_path.write_text(json.dumps(results, indent=2))
-
-    print(f"\nsaved to {output_path}")
-    print("\nAccuracy per candidate:")
-    for name, _ in candidates:
-        n_correct = sum(r["answers"][name]["is_correct"] for r in results.values())
-        print(f"  {name:12s} {n_correct}/{len(results)} ({n_correct/len(results):.1%})")
+    results = run_cascade(items, sample_ids, specs, Path(args.output))
+    print(f"\nsaved to {args.output}")
+    print("Run score_cascade_results.py on this file to add is_correct and print accuracy.")
 
 
 if __name__ == "__main__":
