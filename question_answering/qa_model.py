@@ -589,7 +589,8 @@ class DecoderOnlyQAModel(QAModel):
         self.torch = torch
         self.model_name = model_name
         self.precision = precision
-        self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self.device = device or ("cuda" if torch.cuda.is_available() else
+                                  "mps" if torch.backends.mps.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         load_kwargs: dict = {"attn_implementation": "sdpa"}
