@@ -31,13 +31,16 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-ONESTOPQA_REPO = REPO_ROOT.parent / "onestop-qa"
 
 sys.path.insert(0, str(REPO_ROOT / "question_difficulty/methods/human_answer_based/irt"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from cascade_common import load_items  # noqa: E402 -- see cascade_common.py, ensures the exact same
+                                        # per-item option shuffle used when building prompts
 
 
 def main() -> None:
-    from data_processing import HumanResponseBank, _texts_match
+    from data_processing import _texts_match
 
     parser = argparse.ArgumentParser()
     parser.add_argument("results_file", help="Raw cascade_results.json from run_answerer_cascade.py")
@@ -58,10 +61,9 @@ def main() -> None:
             for name, answer in row["answers"].items():
                 results[item_id]["answers"].setdefault(name, answer)
 
-    assert ONESTOPQA_REPO.exists(), f"expected onestop-qa clone at {ONESTOPQA_REPO}"
-    bank = HumanResponseBank(ONESTOPQA_REPO)
-    correct_answer_by_item = {item_id: rows[0]["correct_answer_text"] for item_id, rows in bank.rows_by_item().items()}
-    options_by_item = {item_id: rows[0]["options"].split("|") for item_id, rows in bank.rows_by_item().items()}
+    items = load_items()
+    correct_answer_by_item = {item_id: it["correct_answer_text"] for item_id, it in items.items()}
+    options_by_item = {item_id: it["options"] for item_id, it in items.items()}
 
     accuracy: dict[str, list[bool]] = {}
     for item_id, row in results.items():

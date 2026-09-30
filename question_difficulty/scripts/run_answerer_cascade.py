@@ -62,37 +62,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-ONESTOPQA_REPO = REPO_ROOT.parent / "onestop-qa"
-RASCH_DIFFICULTY_CACHE = REPO_ROOT / "question_difficulty/notebooks/irt_rasch_difficulty_cache.json"
 
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "question_difficulty/methods/human_answer_based/irt"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-
-def load_items() -> dict:
-    from data_processing import HumanResponseBank
-
-    assert ONESTOPQA_REPO.exists(), f"expected onestop-qa clone at {ONESTOPQA_REPO}"
-    assert RASCH_DIFFICULTY_CACHE.exists(), (
-        f"{RASCH_DIFFICULTY_CACHE} not found -- run question_difficulty_with_irt.ipynb's "
-        "IRT section first, it writes this cache"
-    )
-    bank = HumanResponseBank(ONESTOPQA_REPO)
-    item_difficulty = json.loads(RASCH_DIFFICULTY_CACHE.read_text())
-
-    items = {}
-    for item_id, rows in bank.rows_by_item().items():
-        if item_id not in item_difficulty:
-            continue
-        r = rows[0]
-        items[item_id] = {
-            "passage": r["paragraph"],
-            "question": r["question"],
-            "options": r["options"].split("|"),
-            "correct_answer_text": r["correct_answer_text"],
-            "difficulty": item_difficulty[item_id],
-        }
-    return items
+from cascade_common import load_items  # noqa: E402 -- see cascade_common.py
 
 
 DECODER_MODELS = [
