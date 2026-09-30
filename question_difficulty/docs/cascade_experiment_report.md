@@ -35,6 +35,13 @@ Raw `options` in the source data are un-shuffled — the correct answer sat at p
 
 Chance level: 25%. Opus deliberately excluded (real, higher cost per item; not needed to establish the ceiling).
 
+## EDA
+
+- Coverage: 37 candidates x 1296 items = 47,952 pairs, no missing data.
+- Accuracy across candidates (unweighted): mean 48.8%, range 21.1%-90.7%.
+- Per-item consensus (candidates correct out of 37): mean 18.1/37. 0 items unanimous-correct; 66 items unanimous-wrong; 39 items "easy" (>=30/37 correct); 136 items "hard" (<=7/37 correct).
+- Data quality: `tinyllama11` has a notably high unparsed-answer rate (17-52/1296 per precision, ~1-4%) vs. ~0-2 for every other model -- consistent with its near-chance accuracy.
+
 ## Findings
 
 - Full spread: 21% (tinyllama11) to 90.7% (nova_pro) across 16 models — strong cascade separation.
