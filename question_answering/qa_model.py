@@ -145,14 +145,16 @@ class ExtractiveQAModel(QAModel):
     encoder forward pass, self-attention sliced to question-rows x
     passage-cols, start/end logits point at a passage span."""
 
-    def __init__(self, model_name: str, max_length: int = 512):
+    def __init__(self, model_name: str, max_length: int = 512, device: str | None = None):
         import torch
         from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 
         self.torch = torch
         self.model_name = model_name
+        self.device = device or ("cuda" if torch.cuda.is_available() else
+                                  "mps" if torch.backends.mps.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+        self.model = AutoModelForQuestionAnswering.from_pretrained(model_name).to(self.device)
         self.model.eval()
         self.max_length = max_length
 
@@ -164,6 +166,7 @@ class ExtractiveQAModel(QAModel):
         offsets = enc.pop("offset_mapping")[0].tolist()
         sequence_ids = enc.sequence_ids(0)
         passage_positions = [i for i, s in enumerate(sequence_ids) if s == 1]
+        enc = enc.to(self.device)
 
         with self.torch.no_grad():
             out = self.model(**enc)
@@ -199,6 +202,7 @@ class ExtractiveQAModel(QAModel):
         )
         offsets = enc.pop("offset_mapping")[0].tolist()
         sequence_ids = enc.sequence_ids(0)
+        enc = enc.to(self.device)
 
         with self.torch.no_grad():
             out = self.model(**enc, output_attentions=True)
@@ -312,6 +316,7 @@ class ExtractiveQAModel(QAModel):
         passage_positions = [i for i, s in enumerate(sequence_ids) if s == 1]
         if not question_positions or not passage_positions:
             return {"question_tokens": [], "token_char_spans": [], "distributions": []}
+        enc = enc.to(self.device)
 
         with self.torch.no_grad():
             out = self.model(**enc, output_attentions=True)
@@ -343,6 +348,7 @@ class ExtractiveQAModel(QAModel):
         )
         offsets = enc.pop("offset_mapping")[0].tolist()
         sequence_ids = enc.sequence_ids(0)
+        enc = enc.to(self.device)
 
         with self.torch.no_grad():
             out = self.model(**enc, output_attentions=True)
