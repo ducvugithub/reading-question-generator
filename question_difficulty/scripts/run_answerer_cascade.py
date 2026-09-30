@@ -17,6 +17,9 @@ Candidates, roughly weakest -> strongest (see question_answering/answerer.py):
   qwen15_<precision>       LocalDecoderAnswerer(Qwen2.5-1.5B-Instruct)              -- bigger local decoder
   haiku                    ClaudeBedrockAnswerer(Haiku, via Bedrock)                -- remote, real cost per item
   opus                     ClaudeBedrockAnswerer(Opus, via Bedrock) -- --include-opus -- remote, real cost per item, opt-in only
+  nova_micro/nova_lite/    BedrockConverseAnswerer(Nova, via Bedrock)               -- remote, real cost per item
+    nova_pro
+  glm47flash               BedrockConverseAnswerer(GLM-4.7-flash, via Bedrock)      -- remote, real cost per item
 
 Each local decoder model runs once per entry in --precisions (default
 "fp16" -- cheapest/fastest, for validating the script itself before a
@@ -45,7 +48,7 @@ machine's 18GB RAM; run those on Roihu with their own Answerer instances
 if needed later.
 
 Bedrock tiers use profile "fsecure-golden-retriever-ci" / region
-"eu-north-1" by default (--aws-profile/--aws-region to override) -- every
+"eu-west-1" by default (--aws-profile/--aws-region to override) -- every
 call to them is REAL, BILLED Bedrock usage. Check the sample size before a
 large run.
 
@@ -98,7 +101,8 @@ def candidate_specs(precisions: list[str], include_opus: bool, skip_remote: bool
     The caller is responsible for calling load_fn(), using the result, then
     releasing it before moving to the next entry (see run_cascade)."""
     from question_answering.qa_model import DecoderOnlyQAModel, ExtractiveQAModel
-    from question_answering.answerer import ClaudeBedrockAnswerer, LocalDecoderAnswerer, LocalExtractiveAnswerer
+    from question_answering.answerer import (BedrockConverseAnswerer, ClaudeBedrockAnswerer,
+                                              LocalDecoderAnswerer, LocalExtractiveAnswerer)
 
     specs = [(name, lambda model_id=model_id: LocalExtractiveAnswerer(ExtractiveQAModel(model_id)))
              for name, model_id in EXTRACTIVE_MODELS]
@@ -118,6 +122,18 @@ def candidate_specs(precisions: list[str], include_opus: bool, skip_remote: bool
     if include_opus:
         specs.append(("opus", lambda: ClaudeBedrockAnswerer(
             model="eu.anthropic.claude-opus-4-8", aws_region=aws_region, aws_profile=aws_profile,
+        )))
+
+    # Non-Anthropic Bedrock models -- verified working via BedrockConverseAnswerer
+    # (converse API) on 2026-09-30, same account/region.
+    for name, model_id in [
+        ("nova_micro", "eu.amazon.nova-micro-v1:0"),
+        ("nova_lite", "eu.amazon.nova-lite-v1:0"),
+        ("nova_pro", "eu.amazon.nova-pro-v1:0"),
+        ("glm47flash", "zai.glm-4.7-flash"),
+    ]:
+        specs.append((name, lambda model_id=model_id: BedrockConverseAnswerer(
+            model=model_id, aws_region=aws_region, aws_profile=aws_profile,
         )))
 
     return specs
@@ -183,7 +199,7 @@ def main() -> None:
     parser.add_argument("--skip-remote", action="store_true",
                          help="Drop the Bedrock tiers entirely (use on a SLURM compute node with no internet egress)")
     parser.add_argument("--aws-profile", default="fsecure-golden-retriever-ci")
-    parser.add_argument("--aws-region", default="eu-north-1")
+    parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--output", default=str(REPO_ROOT / "question_difficulty/scripts/cascade_results.json"))
     args = parser.parse_args()
 

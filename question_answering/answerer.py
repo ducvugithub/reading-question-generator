@@ -107,6 +107,53 @@ class ClaudeAPIAnswerer(Answerer):
         return letter, None  # the API doesn't expose a token-probability confidence
 
 
+class BedrockConverseAnswerer(Answerer):
+    """Any non-Anthropic model on Amazon Bedrock (Nova, GLM, etc.), via
+    boto3's provider-agnostic bedrock-runtime `converse` API -- unlike
+    Claude, these providers have no Anthropic-SDK client, so this talks
+    to Bedrock directly. (Claude ALSO works through `converse`, but gave
+    a verbose non-letter answer to the same prompt that the
+    Anthropic-SDK-based ClaudeBedrockAnswerer answers correctly -- so
+    Haiku/Opus stay on that class; this one is for the providers that
+    have no alternative.)
+
+    model: the Bedrock model ID, with cross-region inference profile
+    prefix if the bare ID 404s for on-demand invocation (same caveat as
+    ClaudeBedrockAnswerer) -- e.g. "eu.amazon.nova-micro-v1:0". GLM
+    (zai.glm-4.7-flash) had no such profile as of 2026-09-30; pass the
+    bare ID for models like that.
+
+    aws_region required; aws_profile optional (falls back to the
+    environment's default/active profile). Every call is a real, billed
+    Bedrock request -- check pricing before running this over many items."""
+
+    def __init__(self, model: str, aws_region: str, aws_profile: str | None = None, client=None):
+        import boto3
+
+        self.model = model
+        self.name = model
+        if client is not None:
+            self.client = client
+        else:
+            session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+            self.client = session.client("bedrock-runtime")
+
+    def answer(self, passage: str, question: str, options: list[str]) -> tuple[str | None, float | None]:
+        prompt = (
+            f"Passage: {passage}\n\nQuestion: {question}\nOptions:\n"
+            f"A) {options[0]}\nB) {options[1]}\nC) {options[2]}\nD) {options[3]}\n"
+            "Answer with the letter only."
+        )
+        response = self.client.converse(
+            modelId=self.model,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 8},
+        )
+        text = response["output"]["message"]["content"][0]["text"]
+        letter = next((c for c in text.upper() if c in "ABCD"), None)
+        return letter, None
+
+
 class ClaudeBedrockAnswerer(Answerer):
     """Claude via Amazon Bedrock, through the Anthropic SDK's legacy
     AnthropicBedrock client (the bedrock-runtime InvokeModel path).
