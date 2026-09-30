@@ -7,10 +7,12 @@ score_cascade_results.py for that (cheap, local, pure string matching --
 doesn't need this script's models loaded at all, so it's kept separate).
 
 Candidates, roughly weakest -> strongest (see question_answering/answerer.py):
-  extractive               LocalExtractiveAnswerer(deepset/roberta-base-squad2)     -- BERT-family span extraction
+  extractive_<model>       LocalExtractiveAnswerer(one of EXTRACTIVE_MODELS)        -- BERT-family span extraction, no precision axis
   smollm2_135m_<precision> LocalDecoderAnswerer(SmolLM2-135M-Instruct)              -- tiny local decoder
   smollm2_360m_<precision> LocalDecoderAnswerer(SmolLM2-360M-Instruct)              -- tiny local decoder
+  qwen2_05_<precision>     LocalDecoderAnswerer(Qwen2-0.5B-Instruct)                -- small local decoder, older/weaker generation than qwen05
   qwen05_<precision>       LocalDecoderAnswerer(Qwen2.5-0.5B-Instruct)              -- small local decoder
+  tinyllama11_<precision>  LocalDecoderAnswerer(TinyLlama-1.1B-Chat-v1.0)           -- small local decoder, older/less-optimized recipe
   falcon1b_<precision>     LocalDecoderAnswerer(tiiuae/Falcon3-1B-Instruct)         -- small local decoder, different family
   qwen15_<precision>       LocalDecoderAnswerer(Qwen2.5-1.5B-Instruct)              -- bigger local decoder
   haiku                    ClaudeBedrockAnswerer(Haiku, via Bedrock)                -- remote, real cost per item
@@ -72,9 +74,20 @@ from cascade_common import load_items  # noqa: E402 -- see cascade_common.py
 DECODER_MODELS = [
     ("smollm2_135m", "HuggingFaceTB/SmolLM2-135M-Instruct"),
     ("smollm2_360m", "HuggingFaceTB/SmolLM2-360M-Instruct"),
+    ("qwen2_05", "Qwen/Qwen2-0.5B-Instruct"),
     ("qwen05", "Qwen/Qwen2.5-0.5B-Instruct"),
+    ("tinyllama11", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"),
     ("falcon1b", "tiiuae/Falcon3-1B-Instruct"),
     ("qwen15", "Qwen/Qwen2.5-1.5B-Instruct"),
+]
+
+# Vetted in entropy_manual_review.ipynb (all verified to actually load --
+# see that notebook's §2 for why each one was picked/excluded).
+EXTRACTIVE_MODELS = [
+    ("extractive_roberta_base", "deepset/roberta-base-squad2"),
+    ("extractive_deberta_v3", "deepset/deberta-v3-base-squad2"),
+    ("extractive_distilbert", "distilbert-base-cased-distilled-squad"),
+    ("extractive_roberta_nonsquad", "consciousAI/question-answering-roberta-base-s-v2"),
 ]
 
 
@@ -87,7 +100,8 @@ def candidate_specs(precisions: list[str], include_opus: bool, skip_remote: bool
     from question_answering.qa_model import DecoderOnlyQAModel, ExtractiveQAModel
     from question_answering.answerer import ClaudeBedrockAnswerer, LocalDecoderAnswerer, LocalExtractiveAnswerer
 
-    specs = [("extractive", lambda: LocalExtractiveAnswerer(ExtractiveQAModel("deepset/roberta-base-squad2")))]
+    specs = [(name, lambda model_id=model_id: LocalExtractiveAnswerer(ExtractiveQAModel(model_id)))
+             for name, model_id in EXTRACTIVE_MODELS]
 
     for name, model_id in DECODER_MODELS:
         for precision in precisions:
