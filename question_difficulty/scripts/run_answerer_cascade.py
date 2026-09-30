@@ -6,20 +6,26 @@ remote) over sampled OneStopQA/RACE items. Records each candidate's raw
 score_cascade_results.py for that (cheap, local, pure string matching --
 doesn't need this script's models loaded at all, so it's kept separate).
 
-Candidates, roughly weakest -> strongest (see question_answering/answerer.py):
-  extractive_<model>       LocalExtractiveAnswerer(one of EXTRACTIVE_MODELS)        -- BERT-family span extraction, no precision axis
-  smollm2_135m_<precision> LocalDecoderAnswerer(SmolLM2-135M-Instruct)              -- tiny local decoder
-  smollm2_360m_<precision> LocalDecoderAnswerer(SmolLM2-360M-Instruct)              -- tiny local decoder
-  qwen2_05_<precision>     LocalDecoderAnswerer(Qwen2-0.5B-Instruct)                -- small local decoder, older/weaker generation than qwen05
-  qwen05_<precision>       LocalDecoderAnswerer(Qwen2.5-0.5B-Instruct)              -- small local decoder
-  tinyllama11_<precision>  LocalDecoderAnswerer(TinyLlama-1.1B-Chat-v1.0)           -- small local decoder, older/less-optimized recipe
-  falcon1b_<precision>     LocalDecoderAnswerer(tiiuae/Falcon3-1B-Instruct)         -- small local decoder, different family
-  qwen15_<precision>       LocalDecoderAnswerer(Qwen2.5-1.5B-Instruct)              -- bigger local decoder
-  haiku                    ClaudeBedrockAnswerer(Haiku, via Bedrock)                -- remote, real cost per item
-  opus                     ClaudeBedrockAnswerer(Opus, via Bedrock) -- --include-opus -- remote, real cost per item, opt-in only
-  nova_micro/nova_lite/    BedrockConverseAnswerer(Nova, via Bedrock)               -- remote, real cost per item
-    nova_pro
-  glm47flash               BedrockConverseAnswerer(GLM-4.7-flash, via Bedrock)      -- remote, real cost per item
+Every candidate is one row in CANDIDATES: (name, type, model_id,
+default_on). `type` picks which Answerer wrapper class to use (see
+_make_loader) -- "extractive" (question_answering.qa_model.ExtractiveQAModel,
+local, no precision axis), "decoder" (DecoderOnlyQAModel, local, expanded
+once per --precisions entry), "claude_bedrock" (ClaudeBedrockAnswerer,
+Anthropic SDK's Bedrock client -- Claude only, converse() gives Claude a
+verbose non-letter answer on this prompt so it stays on this class), or
+"bedrock_converse" (BedrockConverseAnswerer, boto3's provider-agnostic
+converse API -- everything else on Bedrock: Nova, GLM, future providers).
+Adding a new candidate is one line in CANDIDATES, never a code change.
+
+Which candidates actually run is controlled by --types/--include/--exclude,
+not a growing pile of one-off boolean flags:
+  included = (name in --include) or (type in --types and default_on)
+  then dropped if name in --exclude
+So e.g. "skip everything remote" is `--types extractive,decoder`; "just
+try the one new model I added" is `--include my_new_model --types ""`;
+"run everything except the slow one" is `--exclude qwen15`. `opus` has
+default_on=False (real cost, bigger than Haiku) -- add `--include opus`
+to run it.
 
 Each local decoder model runs once per entry in --precisions (default
 "fp16" -- cheapest/fastest, for validating the script itself before a
@@ -55,7 +61,8 @@ large run.
 Usage:
   python question_difficulty/scripts/run_answerer_cascade.py --n-items 10
   python question_difficulty/scripts/run_answerer_cascade.py --n-items 10 --precisions fp16,fp32
-  python question_difficulty/scripts/run_answerer_cascade.py --n-items 10 --include-opus
+  python question_difficulty/scripts/run_answerer_cascade.py --n-items 10 --types extractive,decoder
+  python question_difficulty/scripts/run_answerer_cascade.py --n-items 10 --include opus
 """
 from __future__ import annotations
 
@@ -74,68 +81,77 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cascade_common import load_items  # noqa: E402 -- see cascade_common.py
 
 
-DECODER_MODELS = [
-    ("smollm2_135m", "HuggingFaceTB/SmolLM2-135M-Instruct"),
-    ("smollm2_360m", "HuggingFaceTB/SmolLM2-360M-Instruct"),
-    ("qwen2_05", "Qwen/Qwen2-0.5B-Instruct"),
-    ("qwen05", "Qwen/Qwen2.5-0.5B-Instruct"),
-    ("tinyllama11", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"),
-    ("falcon1b", "tiiuae/Falcon3-1B-Instruct"),
-    ("qwen15", "Qwen/Qwen2.5-1.5B-Instruct"),
-]
+# (name, type, model_id, default_on) -- see module docstring for `type` meanings
+# and how default_on interacts with --types/--include/--exclude.
+CANDIDATES = [
+    # Vetted in entropy_manual_review.ipynb (all verified to actually load --
+    # see that notebook's §2 for why each one was picked/excluded).
+    ("extractive_roberta_base", "extractive", "deepset/roberta-base-squad2", True),
+    ("extractive_deberta_v3", "extractive", "deepset/deberta-v3-base-squad2", True),
+    ("extractive_distilbert", "extractive", "distilbert-base-cased-distilled-squad", True),
+    ("extractive_roberta_nonsquad", "extractive", "consciousAI/question-answering-roberta-base-s-v2", True),
 
-# Vetted in entropy_manual_review.ipynb (all verified to actually load --
-# see that notebook's §2 for why each one was picked/excluded).
-EXTRACTIVE_MODELS = [
-    ("extractive_roberta_base", "deepset/roberta-base-squad2"),
-    ("extractive_deberta_v3", "deepset/deberta-v3-base-squad2"),
-    ("extractive_distilbert", "distilbert-base-cased-distilled-squad"),
-    ("extractive_roberta_nonsquad", "consciousAI/question-answering-roberta-base-s-v2"),
-]
+    ("smollm2_135m", "decoder", "HuggingFaceTB/SmolLM2-135M-Instruct", True),
+    ("smollm2_360m", "decoder", "HuggingFaceTB/SmolLM2-360M-Instruct", True),
+    ("qwen2_05", "decoder", "Qwen/Qwen2-0.5B-Instruct", True),          # older/weaker generation than qwen05
+    ("qwen05", "decoder", "Qwen/Qwen2.5-0.5B-Instruct", True),
+    ("tinyllama11", "decoder", "TinyLlama/TinyLlama-1.1B-Chat-v1.0", True),  # older/less-optimized recipe
+    ("falcon1b", "decoder", "tiiuae/Falcon3-1B-Instruct", True),
+    ("qwen15", "decoder", "Qwen/Qwen2.5-1.5B-Instruct", True),
 
-
-def candidate_specs(precisions: list[str], include_opus: bool, skip_remote: bool,
-                     aws_profile: str, aws_region: str) -> list[tuple[str, callable]]:
-    """Returns [(name, load_fn), ...] -- load_fn() constructs (and loads
-    the weights for) that one Answerer when called, nothing is loaded yet.
-    The caller is responsible for calling load_fn(), using the result, then
-    releasing it before moving to the next entry (see run_cascade)."""
-    from question_answering.qa_model import DecoderOnlyQAModel, ExtractiveQAModel
-    from question_answering.answerer import (BedrockConverseAnswerer, ClaudeBedrockAnswerer,
-                                              LocalDecoderAnswerer, LocalExtractiveAnswerer)
-
-    specs = [(name, lambda model_id=model_id: LocalExtractiveAnswerer(ExtractiveQAModel(model_id)))
-             for name, model_id in EXTRACTIVE_MODELS]
-
-    for name, model_id in DECODER_MODELS:
-        for precision in precisions:
-            specs.append((f"{name}_{precision}",
-                          lambda model_id=model_id, precision=precision:
-                              LocalDecoderAnswerer(DecoderOnlyQAModel(model_id, precision=precision))))
-
-    if skip_remote:
-        return specs
-
-    specs.append(("haiku", lambda: ClaudeBedrockAnswerer(
-        model="eu.anthropic.claude-haiku-4-5-20251001-v1:0", aws_region=aws_region, aws_profile=aws_profile,
-    )))
-    if include_opus:
-        specs.append(("opus", lambda: ClaudeBedrockAnswerer(
-            model="eu.anthropic.claude-opus-4-8", aws_region=aws_region, aws_profile=aws_profile,
-        )))
+    ("haiku", "claude_bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", True),
+    ("opus", "claude_bedrock", "eu.anthropic.claude-opus-4-8", False),  # off by default: real, larger cost per item
 
     # Non-Anthropic Bedrock models -- verified working via BedrockConverseAnswerer
     # (converse API) on 2026-09-30, same account/region.
-    for name, model_id in [
-        ("nova_micro", "eu.amazon.nova-micro-v1:0"),
-        ("nova_lite", "eu.amazon.nova-lite-v1:0"),
-        ("nova_pro", "eu.amazon.nova-pro-v1:0"),
-        ("glm47flash", "zai.glm-4.7-flash"),
-    ]:
-        specs.append((name, lambda model_id=model_id: BedrockConverseAnswerer(
-            model=model_id, aws_region=aws_region, aws_profile=aws_profile,
-        )))
+    ("nova_micro", "bedrock_converse", "eu.amazon.nova-micro-v1:0", True),
+    ("nova_lite", "bedrock_converse", "eu.amazon.nova-lite-v1:0", True),
+    ("nova_pro", "bedrock_converse", "eu.amazon.nova-pro-v1:0", True),
+    ("glm47flash", "bedrock_converse", "zai.glm-4.7-flash", True),
+]
 
+ALL_TYPES = ["extractive", "decoder", "claude_bedrock", "bedrock_converse"]
+
+
+def _make_loader(type_: str, model_id: str, precision: str | None,
+                  aws_profile: str, aws_region: str) -> callable:
+    """One zero-arg factory that constructs (and loads the weights for)
+    the Answerer for this (type, model_id[, precision]) -- nothing is
+    loaded until it's called. See run_cascade for the load/run/release
+    cycle this feeds into."""
+    if type_ == "extractive":
+        from question_answering.qa_model import ExtractiveQAModel
+        from question_answering.answerer import LocalExtractiveAnswerer
+        return lambda: LocalExtractiveAnswerer(ExtractiveQAModel(model_id))
+    if type_ == "decoder":
+        from question_answering.qa_model import DecoderOnlyQAModel
+        from question_answering.answerer import LocalDecoderAnswerer
+        return lambda: LocalDecoderAnswerer(DecoderOnlyQAModel(model_id, precision=precision))
+    if type_ == "claude_bedrock":
+        from question_answering.answerer import ClaudeBedrockAnswerer
+        return lambda: ClaudeBedrockAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
+    if type_ == "bedrock_converse":
+        from question_answering.answerer import BedrockConverseAnswerer
+        return lambda: BedrockConverseAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
+    raise ValueError(f"unknown candidate type {type_!r}")
+
+
+def candidate_specs(precisions: list[str], types: list[str], include: list[str], exclude: list[str],
+                     aws_profile: str, aws_region: str) -> list[tuple[str, callable]]:
+    """Returns [(name, load_fn), ...] in CANDIDATES order, filtered per
+    the module docstring's include/exclude/types rule. `precisions`
+    only applies to type="decoder" entries (each expands into one
+    candidate per precision, e.g. qwen15 -> qwen15_fp32, qwen15_fp16, ...)."""
+    specs = []
+    for name, type_, model_id, default_on in CANDIDATES:
+        included = name in include or (type_ in types and default_on)
+        if not included or name in exclude:
+            continue
+        if type_ == "decoder":
+            for precision in precisions:
+                specs.append((f"{name}_{precision}", _make_loader(type_, model_id, precision, aws_profile, aws_region)))
+        else:
+            specs.append((name, _make_loader(type_, model_id, None, aws_profile, aws_region)))
     return specs
 
 
@@ -193,11 +209,17 @@ def main() -> None:
     parser.add_argument("--n-items", type=int, default=10)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--precisions", default="fp16",
-                         help="Comma-separated precisions to run each local decoder model at: "
+                         help="Comma-separated precisions for type=decoder candidates: "
                               "fp32,fp16,int8,int4 (int8/int4 need bitsandbytes + CUDA, e.g. Roihu)")
-    parser.add_argument("--include-opus", action="store_true", help="Add the Opus Bedrock tier (real, larger cost per item)")
-    parser.add_argument("--skip-remote", action="store_true",
-                         help="Drop the Bedrock tiers entirely (use on a SLURM compute node with no internet egress)")
+    parser.add_argument("--types", default=",".join(ALL_TYPES),
+                         help=f"Comma-separated candidate types to include (default all: {','.join(ALL_TYPES)}). "
+                              "E.g. --types extractive,decoder to drop everything remote.")
+    parser.add_argument("--include", default="",
+                         help="Comma-separated candidate names to force-include even if their type "
+                              "is excluded or default_on=False (e.g. --include opus)")
+    parser.add_argument("--exclude", default="",
+                         help="Comma-separated candidate names to force-exclude even if their type "
+                              "is included and default_on=True")
     parser.add_argument("--aws-profile", default="fsecure-golden-retriever-ci")
     parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--output", default=str(REPO_ROOT / "question_difficulty/scripts/cascade_results.json"))
@@ -210,7 +232,10 @@ def main() -> None:
     sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
 
     precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
-    specs = candidate_specs(precisions, args.include_opus, args.skip_remote, args.aws_profile, args.aws_region)
+    types = [t.strip() for t in args.types.split(",") if t.strip()]
+    include = [n.strip() for n in args.include.split(",") if n.strip()]
+    exclude = [n.strip() for n in args.exclude.split(",") if n.strip()]
+    specs = candidate_specs(precisions, types, include, exclude, args.aws_profile, args.aws_region)
     print(f"cascade: {[name for name, _ in specs]}\n")
 
     results = run_cascade(items, sample_ids, specs, Path(args.output))
