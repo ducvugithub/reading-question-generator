@@ -108,6 +108,7 @@ CANDIDATES = [
     ("nova_lite", "bedrock_converse", "eu.amazon.nova-lite-v1:0", True),
     ("nova_pro", "bedrock_converse", "eu.amazon.nova-pro-v1:0", True),
     ("glm47flash", "bedrock_converse", "zai.glm-4.7-flash", True),
+    ("gemma3_4b", "bedrock_converse", "google.gemma-3-4b-it", True),
 ]
 
 ALL_TYPES = ["extractive", "decoder", "claude_bedrock", "bedrock_converse"]

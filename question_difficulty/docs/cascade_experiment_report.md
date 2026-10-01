@@ -2,9 +2,9 @@
 
 ## Setup
 
-- 1296 OneStopQA/RACE items, 4-option MC, real gold answers.
-- 16 models: 7 local autoregressive, 4 local extractive, 5 remote API (Bedrock) x up to 4 precisions (local only) = 37 candidates.
-- Run: `question_difficulty/scripts/run_answerer_cascade.py` — local decoders/extractive on CSC Roihu (GH200 GPU), remote (Haiku, Nova micro/lite/pro, GLM-4.7-flash) locally via Bedrock.
+- 1296 OneStopQA/RACE items, 4-option (shuffled to avoid all correct answers as A option) MC, real gold answers.
+- 17 models: 7 local autoregressive, 4 local extractive, 6 remote API (Bedrock) x up to 4 precisions (local only) = 38 candidates.
+- Run: `question_difficulty/scripts/run_answerer_cascade.py` — local decoders/extractive on CSC Roihu (GH200 GPU), remote (Haiku, Nova micro/lite/pro, GLM-4.7-flash, Gemma 3 4B) locally via Bedrock.
 - Scored + merged: `question_difficulty/scripts/score_cascade_results.py`.
 - Data: `question_difficulty/scripts/cascade_results_all_scored.json`.
 
@@ -27,6 +27,7 @@ Raw `options` in the source data are un-shuffled — the correct answer sat at p
 | extractive_roberta_nonsquad | local extractive | 38.6% | - | - | - |
 | extractive_roberta_base | local extractive | 40.2% | - | - | - |
 | extractive_deberta_v3 | local extractive | 41.2% | - | - | - |
+| gemma3_4b | remote API | 79.8% | - | - | - |
 | glm47flash | remote API | 82.3% | - | - | - |
 | nova_micro | remote API | 86.5% | - | - | - |
 | nova_lite | remote API | 88.2% | - | - | - |
@@ -37,14 +38,14 @@ Chance level: 25%. Opus deliberately excluded (real, higher cost per item; not n
 
 ## EDA
 
-- Coverage: 37 candidates x 1296 items = 47,952 pairs, no missing data.
+- Coverage: 38 candidates x 1296 items = 49,248 pairs, no missing data.
 - Accuracy across candidates (unweighted): mean 48.8%, range 21.1%-90.7%.
 - Per-item consensus (candidates correct out of 37): mean 18.1/37. 0 items unanimous-correct; 66 items unanimous-wrong; 39 items "easy" (>=30/37 correct); 136 items "hard" (<=7/37 correct).
 - Data quality: `tinyllama11` has a notably high unparsed-answer rate (17-52/1296 per precision, ~1-4%) vs. ~0-2 for every other model -- consistent with its near-chance accuracy.
 
 ## Findings
 
-- Full spread: 21% (tinyllama11) to 90.7% (nova_pro) across 16 models — strong cascade separation.
+- Full spread: 21% (tinyllama11) to 90.7% (nova_pro) across 17 models — strong cascade separation.
 - Remote frontier models are the clear top tier (82-91%), well above the best local model (qwen15, 76.5%).
 - smollm2/tinyllama sit at chance — no real comprehension signal; their small int8/int4 upticks are noise (near chance, differences within statistical error), not a genuine quantization benefit.
 - Precision barely matters until int4, which drops accuracy ~4-9pts consistently across local models.
@@ -53,5 +54,6 @@ Chance level: 25%. Opus deliberately excluded (real, higher cost per item; not n
 ## Not yet done
 
 - Opus not run (deliberately, cost).
-- No correlation against IRT difficulty yet (does accuracy track question difficulty).
 - Near-chance models' effect on a naive averaged cascade score vs. a proper IRT-weighted combination not yet tested.
+
+IRT correlation against human difficulty: done, see `question_difficulty/notebooks/irt_human_vs_model.ipynb` -- human-vs-model correlation is moderate (r=0.46-0.53), not strong.
