@@ -54,6 +54,55 @@ _TITLE_OVERRIDES = {8: "Autumn-Born Children Better at Sports Says Study"}
 _ITEM_ID_RE = re.compile(r"os(\d+)_(\d+)_(\d+)_(\w+)")
 _LETTER_TO_IDX = {"A": 0, "B": 1, "C": 2, "D": 3}
 
+# Manual corrections to RACE's own official answer key, found via close reading --
+# NOT resolution bugs on our side (verified against the raw ehovy/race "answer" field
+# directly; see irt_human_vs_model.ipynb's manual-verification section for how each was
+# found). Applied in _resolve_correctness() below, so both human is_correct and the
+# model cascade's gold text (via cascade_common.load_items(), which reads this same
+# bank) are corrected from this one place. Add an entry only after confirming there's
+# no textual support anywhere in the passage for RACE's official answer, AND an
+# alternative option that IS directly stated -- a debatable-but-defensible RACE answer
+# is not grounds for an override, only a demonstrably unsupported one.
+GOLD_ANSWER_OVERRIDES: dict[str, str] = {
+    # RACE official answer: "the writers of travel books may be different" -- no
+    # textual support anywhere in the passage (that phrase describes a DIFFERENT travel
+    # book type earlier in the text, unrelated to the date-of-publication reasoning).
+    # The passage's actual stated reason, right next to the publication-date advice, is
+    # "travel is very practical matter and many things change quickly in the 21st
+    # century" -- directly supporting "the information in travel books is always
+    # changing" instead. All 3 human respondents AND the model cascade majority (23/38)
+    # independently picked this same alternative.
+    "r4942_1_Middle": "the information in travel books is always changing",
+
+    # RACE official answer: "amazed" -- the passage's actual stated emotion is "he
+    # became *alarmed* by the rise of Holocaust deniers". "Alarmed" is a near-synonym
+    # of "upset" (the cascade majority pick, 25/38); "amazed" is the opposite valence
+    # (positive surprise vs. negative concern) and has no textual basis at all.
+    "r19399_3_High": "upset",
+
+    # RACE official answer: "the more we want to explore" -- no textual support
+    # anywhere. The passage states, near-verbatim, "it feels like you know *less and
+    # less*" -- directly matching "the less we will know" (cascade majority, 12/38
+    # among several close options, the item's actual plurality pick).
+    "r10328_1_High": "the less we will know",
+
+    # RACE official answer: "he didn't do well in his history" -- not what the passage
+    # gives as the stated (joke) reason. The father's actual line is "we don't take any
+    # newspapers in our house, so none of us even know that Napoleon was ill" --
+    # directly matching "he didn't take any newspaper" (tied cascade plurality, 12/38).
+    "r5627_3_Middle": "he didn't take any newspaper",
+}
+
+# Items where the passage explicitly supports TWO options as equally valid (not a
+# wrong label -- a genuinely ambiguous/flawed question), so no single override is
+# correct. Excluded from IRT fits for the same reason as GOLD_ANSWER_OVERRIDES items
+# (an unreliable difficulty signal), but NOT corrected, since there is no single right
+# answer to correct it to. Both os12_4_2_Ele/Adv (same underlying passage, different
+# difficulty tier) state "two things that wolves find scary: strings of small red
+# flags... and the Tatra Mountain Sheepdog" -- gold picks the dog, but the red-flags
+# option (the cascade majority/plurality pick in both) is equally, explicitly stated.
+AMBIGUOUS_MULTI_ANSWER_ITEMS: set[str] = {"os12_4_2_Ele", "os12_4_2_Adv"}
+
 
 def _norm_title(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
@@ -144,6 +193,8 @@ class HumanResponseBank:
                 correct_text = self._race_question_to_answer.get(r["question"].strip())
             else:
                 correct_text = None
+            if r["item_id"] in GOLD_ANSWER_OVERRIDES:
+                correct_text = GOLD_ANSWER_OVERRIDES[r["item_id"]]
             r["correct_answer_text"] = correct_text
 
             if correct_text is None:

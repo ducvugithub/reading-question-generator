@@ -42552,27 +42552,27 @@
       "extractive_roberta_nonsquad": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_fp32": {
         "letter": "D",
         "confidence": 0.8130518645048141,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_fp16": {
         "letter": "D",
         "confidence": 0.812953807413578,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_int8": {
         "letter": "B",
         "confidence": 0.7986520379781723,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_135m_int4": {
         "letter": "B",
         "confidence": 0.8091872036457062,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_fp32": {
         "letter": "C",
@@ -42592,7 +42592,7 @@
       "smollm2_360m_int4": {
         "letter": "D",
         "confidence": 0.4158274605870247,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen2_05_fp32": {
         "letter": "C",
@@ -42617,22 +42617,22 @@
       "qwen05_fp32": {
         "letter": "B",
         "confidence": 0.7812615036964417,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen05_fp16": {
         "letter": "B",
         "confidence": 0.7798740267753601,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen05_int8": {
         "letter": "B",
         "confidence": 0.7163754403591156,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen05_int4": {
         "letter": "B",
         "confidence": 0.6798199862241745,
-        "is_correct": true
+        "is_correct": false
       },
       "tinyllama11_fp32": {
         "letter": "A",
@@ -42677,37 +42677,37 @@
       "qwen15_fp32": {
         "letter": "D",
         "confidence": 0.9376241862773895,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp16": {
         "letter": "D",
         "confidence": 0.9396923333406448,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int8": {
         "letter": "D",
         "confidence": 0.7629734873771667,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int4": {
         "letter": "D",
         "confidence": 0.8506260961294174,
-        "is_correct": false
+        "is_correct": true
       },
       "haiku": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_micro": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_lite": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_pro": {
         "letter": "C",
@@ -42717,7 +42717,7 @@
       "glm47flash": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "gemma3_4b": {
         "letter": "C",
@@ -42725,7 +42725,7 @@
         "is_correct": false
       }
     },
-    "gold_answer": "he didn't do well in his history"
+    "gold_answer": "he didn't take any newspaper"
   },
   "os9_1_3_Adv": {
     "difficulty": 0.5320617037117583,
@@ -144849,22 +144849,22 @@
       "extractive_roberta_base": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "extractive_deberta_v3": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "extractive_distilbert": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "extractive_roberta_nonsquad": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_fp32": {
         "letter": "B",
@@ -144879,52 +144879,52 @@
       "smollm2_135m_int8": {
         "letter": "C",
         "confidence": 0.8143709972500801,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_135m_int4": {
         "letter": "A",
         "confidence": 0.6360962837934494,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_360m_fp32": {
         "letter": "C",
         "confidence": 0.7908322513103485,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_fp16": {
         "letter": "C",
         "confidence": 0.7907327488064766,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_int8": {
         "letter": "C",
         "confidence": 0.8156144544482231,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_int4": {
         "letter": "C",
         "confidence": 0.3990650326013565,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen2_05_fp32": {
         "letter": "A",
         "confidence": 0.8655905425548553,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen2_05_fp16": {
         "letter": "A",
         "confidence": 0.864675834774971,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen2_05_int8": {
         "letter": "A",
         "confidence": 0.8584604263305664,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen2_05_int4": {
         "letter": "A",
         "confidence": 0.7048443555831909,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen05_fp32": {
         "letter": "D",
@@ -144944,7 +144944,7 @@
       "qwen05_int4": {
         "letter": "C",
         "confidence": 0.7233581840991974,
-        "is_correct": true
+        "is_correct": false
       },
       "tinyllama11_fp32": {
         "letter": "B",
@@ -144969,75 +144969,75 @@
       "falcon1b_fp32": {
         "letter": "A",
         "confidence": 0.9996713399887085,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_fp16": {
         "letter": "A",
         "confidence": 0.9996738880872726,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_int8": {
         "letter": "A",
         "confidence": 0.9992683976888657,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_int4": {
         "letter": "A",
         "confidence": 0.993223249912262,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp32": {
         "letter": "A",
         "confidence": 0.9803415387868881,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp16": {
         "letter": "A",
         "confidence": 0.9799215346574783,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int8": {
         "letter": "A",
         "confidence": 0.9873784482479095,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int4": {
         "letter": "A",
         "confidence": 0.9773744493722916,
-        "is_correct": false
+        "is_correct": true
       },
       "haiku": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_micro": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_lite": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_pro": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "glm47flash": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "gemma3_4b": {
         "letter": "A",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       }
     },
-    "gold_answer": "the writers of travel books may be different"
+    "gold_answer": "the information in travel books is always changing"
   },
   "os6_2_2_Adv": {
     "difficulty": 1.5437536153262077,
@@ -181913,37 +181913,37 @@
       "smollm2_135m_fp32": {
         "letter": "B",
         "confidence": 0.7430562674999237,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_fp16": {
         "letter": "B",
         "confidence": 0.7422384172677994,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_int8": {
         "letter": "B",
         "confidence": 0.7530211433768272,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_int4": {
         "letter": "B",
         "confidence": 0.644939124584198,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_360m_fp32": {
         "letter": "B",
         "confidence": 0.8281772658228874,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_360m_fp16": {
         "letter": "B",
         "confidence": 0.8276055008172989,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_360m_int8": {
         "letter": "B",
         "confidence": 0.8307370990514755,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_360m_int4": {
         "letter": "C",
@@ -181968,22 +181968,22 @@
       "qwen2_05_int4": {
         "letter": "D",
         "confidence": 0.5282273106276989,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen05_fp32": {
         "letter": "B",
         "confidence": 0.8371190428733826,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen05_fp16": {
         "letter": "B",
         "confidence": 0.8362709581851959,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen05_int8": {
         "letter": "B",
         "confidence": 0.7372842729091644,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen05_int4": {
         "letter": "A",
@@ -181993,12 +181993,12 @@
       "tinyllama11_fp32": {
         "letter": "B",
         "confidence": 0.5814752727746964,
-        "is_correct": false
+        "is_correct": true
       },
       "tinyllama11_fp16": {
         "letter": "B",
         "confidence": 0.5814383700489998,
-        "is_correct": false
+        "is_correct": true
       },
       "tinyllama11_int8": {
         "letter": "A",
@@ -182013,47 +182013,47 @@
       "falcon1b_fp32": {
         "letter": "B",
         "confidence": 0.9924638122320175,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_fp16": {
         "letter": "B",
         "confidence": 0.9921106249094009,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_int8": {
         "letter": "B",
         "confidence": 0.9923072159290314,
-        "is_correct": false
+        "is_correct": true
       },
       "falcon1b_int4": {
         "letter": "B",
         "confidence": 0.996156856417656,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp32": {
         "letter": "B",
         "confidence": 0.9652988463640213,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp16": {
         "letter": "B",
         "confidence": 0.9641293585300446,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int8": {
         "letter": "B",
         "confidence": 0.9595951586961746,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int4": {
         "letter": "B",
         "confidence": 0.8595313876867294,
-        "is_correct": false
+        "is_correct": true
       },
       "haiku": {
         "letter": "B",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_micro": {
         "letter": "C",
@@ -182063,25 +182063,25 @@
       "nova_lite": {
         "letter": "B",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_pro": {
         "letter": "B",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "glm47flash": {
         "letter": "B",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "gemma3_4b": {
         "letter": "B",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       }
     },
-    "gold_answer": "amazed"
+    "gold_answer": "upset"
   },
   "r7377_1_High": {
     "difficulty": -1.1361014113808627,
@@ -212077,22 +212077,22 @@
       "extractive_roberta_base": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "extractive_deberta_v3": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "extractive_distilbert": {
         "letter": "C",
         "confidence": null,
-        "is_correct": true
+        "is_correct": false
       },
       "extractive_roberta_nonsquad": {
         "letter": "C",
         "confidence": null,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_135m_fp32": {
         "letter": "B",
@@ -212107,7 +212107,7 @@
       "smollm2_135m_int8": {
         "letter": "D",
         "confidence": 0.8180298954248428,
-        "is_correct": false
+        "is_correct": true
       },
       "smollm2_135m_int4": {
         "letter": "A",
@@ -212117,22 +212117,22 @@
       "smollm2_360m_fp32": {
         "letter": "C",
         "confidence": 0.8182881101965904,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_fp16": {
         "letter": "C",
         "confidence": 0.8188674822449684,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_int8": {
         "letter": "C",
         "confidence": 0.7921972498297691,
-        "is_correct": true
+        "is_correct": false
       },
       "smollm2_360m_int4": {
         "letter": "C",
         "confidence": 0.4361463189125061,
-        "is_correct": true
+        "is_correct": false
       },
       "qwen2_05_fp32": {
         "letter": "A",
@@ -212217,17 +212217,17 @@
       "qwen15_fp32": {
         "letter": "D",
         "confidence": 0.8634406328201294,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_fp16": {
         "letter": "D",
         "confidence": 0.8648711641629537,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int8": {
         "letter": "D",
         "confidence": 0.8461658755938212,
-        "is_correct": false
+        "is_correct": true
       },
       "qwen15_int4": {
         "letter": "B",
@@ -212237,35 +212237,35 @@
       "haiku": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_micro": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_lite": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "nova_pro": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "glm47flash": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       },
       "gemma3_4b": {
         "letter": "D",
         "confidence": null,
-        "is_correct": false
+        "is_correct": true
       }
     },
-    "gold_answer": "the more we want to explore"
+    "gold_answer": "the less we will know"
   },
   "os10_6_3_Ele": {
     "difficulty": -1.0728529224328465,

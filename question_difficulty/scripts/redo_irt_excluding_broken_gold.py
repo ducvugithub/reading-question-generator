@@ -171,8 +171,11 @@ def main() -> None:
     args = parser.parse_args()
     person_sets = args.person_sets.split(",")
 
-    broken = find_broken_gold_items()
-    print(f"excluding {len(broken)} broken-gold-answer items from every fit below")
+    from data_processing import AMBIGUOUS_MULTI_ANSWER_ITEMS
+
+    broken = find_broken_gold_items() | AMBIGUOUS_MULTI_ANSWER_ITEMS
+    print(f"excluding {len(broken)} items from every fit below "
+          f"(broken-gold-answer + {len(AMBIGUOUS_MULTI_ANSWER_ITEMS)} ambiguous multi-answer)")
 
     human_triples = build_human_triples(broken) if "human" in person_sets else None
     model_triples = build_model_triples(broken) if "model" in person_sets or "combined" in person_sets else None
