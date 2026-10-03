@@ -40,7 +40,7 @@ Chance level: 25%. Opus deliberately excluded (real, higher cost per item; not n
 
 - Coverage: 38 candidates x 1296 items = 49,248 pairs, no missing data.
 - Accuracy across candidates (unweighted): mean 48.8%, range 21.1%-90.7%.
-- Per-item consensus (candidates correct out of 37): mean 18.1/37. 0 items unanimous-correct; 66 items unanimous-wrong; 39 items "easy" (>=30/37 correct); 136 items "hard" (<=7/37 correct).
+- Per-item consensus (candidates correct out of 37): mean 18.1/37. 0 items unanimous-correct; 39 items "easy" (>=30/37 correct); 136 items "hard" (<=7/37 correct). The 66 items originally reported here as "unanimous-wrong" are NOT a real difficulty finding -- confirmed (2026-10-03) to be a `HumanResponseBank` RACE answer-key resolution bug (`correct_answer_text` doesn't match any option, so every candidate scores 0.000 by construction). See `irt_human_vs_model.ipynb` §7.2; these 66 items are excluded from the IRT fits as of `redo_irt_excluding_broken_gold.py`.
 - Data quality: `tinyllama11` has a notably high unparsed-answer rate (17-52/1296 per precision, ~1-4%) vs. ~0-2 for every other model -- consistent with its near-chance accuracy.
 
 ## Findings
@@ -56,4 +56,4 @@ Chance level: 25%. Opus deliberately excluded (real, higher cost per item; not n
 - Opus not run (deliberately, cost).
 - Near-chance models' effect on a naive averaged cascade score vs. a proper IRT-weighted combination not yet tested.
 
-IRT correlation against human difficulty: done, see `question_difficulty/notebooks/irt_human_vs_model.ipynb` -- human-vs-model correlation is moderate (r=0.46-0.53), not strong.
+IRT correlation against human difficulty: done, see `question_difficulty/notebooks/irt_human_vs_model.ipynb` -- human-vs-model correlation is weak-to-moderate (r=0.27-0.29) after fixing the broken-gold-answer bug above (originally reported as r=0.46-0.53, which was inflated by that bug). The per-candidate dose-response check (agreement with human difficulty scales with model size/accuracy, §6) is the stronger validity signal: r=-0.92.
