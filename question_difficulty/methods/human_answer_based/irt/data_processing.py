@@ -93,15 +93,22 @@ GOLD_ANSWER_OVERRIDES: dict[str, str] = {
     "r5627_3_Middle": "he didn't take any newspaper",
 }
 
-# Items where the passage explicitly supports TWO options as equally valid (not a
-# wrong label -- a genuinely ambiguous/flawed question), so no single override is
-# correct. Excluded from IRT fits for the same reason as GOLD_ANSWER_OVERRIDES items
-# (an unreliable difficulty signal), but NOT corrected, since there is no single right
-# answer to correct it to. Both os12_4_2_Ele/Adv (same underlying passage, different
-# difficulty tier) state "two things that wolves find scary: strings of small red
-# flags... and the Tatra Mountain Sheepdog" -- gold picks the dog, but the red-flags
-# option (the cascade majority/plurality pick in both) is equally, explicitly stated.
-AMBIGUOUS_MULTI_ANSWER_ITEMS: set[str] = {"os12_4_2_Ele", "os12_4_2_Adv"}
+# Items confirmed to have an unreliable gold answer where, unlike GOLD_ANSWER_OVERRIDES,
+# there is no single correct option to fix it TO -- so these are excluded from IRT fits
+# entirely (same reasoning as the broken-gold-answer items) rather than corrected.
+# Two different failure modes so far:
+#  - os12_4_2_Ele/Adv (same underlying passage, different difficulty tier): the passage
+#    explicitly supports TWO options as equally valid ("two things that wolves find
+#    scary: strings of small red flags... and the Tatra Mountain Sheepdog") -- gold
+#    picks the dog, but the red-flags option (the cascade majority/plurality pick in
+#    both) is equally, explicitly stated. Too many right answers, not too few.
+#  - os13_2_2_Adv: gold ("short prison sentences") is directly contradicted by the
+#    text -- "continues to strive to minimize short-term prison sentences... by using
+#    community-based punishments, which have been proven to be more effective at
+#    reducing reoffending" explicitly credits a DIFFERENT mechanism instead. But none
+#    of the 4 options states "community-based punishments" either, so there's no
+#    option to swap gold to. Zero right answers, not too many.
+UNRELIABLE_GOLD_ITEMS: set[str] = {"os12_4_2_Ele", "os12_4_2_Adv", "os13_2_2_Adv"}
 
 
 def _norm_title(s: str) -> str:
