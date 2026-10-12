@@ -11,11 +11,18 @@ Model types:
   baseline-hotpot          — HotpotQA-only baseline: context → question
   focus-control-hotpot     — focus-span QG on HotpotQA: focus + context → question
   baseline-all             — reference baseline on RACE + HotpotQA combined
+  diff-control-irt-pilot   — difficulty-controlled QG, difficulty is real per-
+                             question cascade-IRT signal (not RACE-subset) on
+                             a ~1.2K-item pilot set; --base-model should point
+                             at an existing baseline-race checkpoint directory
+                             to fine-tune from it, not a fresh pretrained model
 
 Usage:
   python question_generation/scripts/train_seq2seq.py --model-type baseline-race
   python question_generation/scripts/train_seq2seq.py --model-type diff-control-race --epochs 5
   python question_generation/scripts/train_seq2seq.py --model-type baseline-race --limit 200 --epochs 1  # smoke test
+  python question_generation/scripts/train_seq2seq.py --model-type diff-control-irt-pilot \\
+      --base-model question_generation/models/qg/t5-base/baseline-race/final --epochs 10
 """
 from __future__ import annotations
 
@@ -87,7 +94,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-type",  required=True,
                         choices=["baseline-all", "baseline-race", "baseline-hotpot",
-                                 "diff-control-race", "focus-control-hotpot"])
+                                 "diff-control-race", "focus-control-hotpot",
+                                 "diff-control-irt-pilot"])
     parser.add_argument("--data-dir",    default="data/qg")
     parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")
