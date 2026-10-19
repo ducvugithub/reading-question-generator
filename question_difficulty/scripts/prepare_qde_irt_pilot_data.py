@@ -14,10 +14,15 @@ tertile bucketing -- so this QDE pilot and the diff-control-irt-pilot QG
 pilot train on IDENTICAL ground truth, not two independently-recomputed
 versions that could silently drift apart.
 
-Output schema matches prepare_qde_data.py's exactly, so the existing
-train_encoder.py / evaluate_qde.py run against this data UNCHANGED:
+Output schema matches prepare_qde_data.py's exactly PLUS one extra field,
+"difficulty_score" (the real continuous centered IRT score, before tertile
+bucketing) -- used by train_encoder.py's --regression mode. The bucketed
+"difficulty" field alone can't distinguish a borderline-EASY question from
+a solidly-EASY one; a 3-class confusion matrix over an arbitrarily-bucketed
+continuous signal is hard to interpret for the same reason. Harmless for
+the classification mode, which ignores unknown fields:
   {"passage": "...", "question": "...", "answer": "...",
-   "difficulty": "EASY|MEDIUM|HARD", "source": "..."}
+   "difficulty": "EASY|MEDIUM|HARD", "difficulty_score": -1.23, "source": "..."}
 
 Usage:
   python question_difficulty/scripts/prepare_qde_irt_pilot_data.py
@@ -49,7 +54,7 @@ def main() -> None:
     for r in records:
         split = r.pop("_split")
         r.pop("_item_id", None)
-        r.pop("_centered_score", None)
+        r["difficulty_score"] = r.pop("_centered_score")
         by_split[split].append(r)
 
     for split in ("train", "val", "test"):
