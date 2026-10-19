@@ -115,12 +115,18 @@ def main() -> None:
     print("Importing transformers...", flush=True)
     from transformers import T5ForConditionalGeneration, T5Tokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
 
-    from huggingface_hub import try_to_load_from_cache
-    cached = try_to_load_from_cache(args.base_model, "config.json")
-    if cached is None:
-        print(f"Downloading {args.base_model} from HuggingFace (~900MB)...", flush=True)
+    if Path(args.base_model).exists():
+        # A local checkpoint directory (e.g. fine-tuning diff-control-irt-pilot FROM an
+        # existing baseline-race checkpoint) -- try_to_load_from_cache below assumes a HF
+        # Hub repo id ("namespace/repo_name") and raises on an arbitrary local path.
+        print(f"Loading {args.base_model} from local checkpoint", flush=True)
     else:
-        print(f"Loading {args.base_model} from cache", flush=True)
+        from huggingface_hub import try_to_load_from_cache
+        cached = try_to_load_from_cache(args.base_model, "config.json")
+        if cached is None:
+            print(f"Downloading {args.base_model} from HuggingFace (~900MB)...", flush=True)
+        else:
+            print(f"Loading {args.base_model} from cache", flush=True)
     tokenizer = T5Tokenizer.from_pretrained(args.base_model)
     model     = T5ForConditionalGeneration.from_pretrained(args.base_model)
 
