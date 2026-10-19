@@ -12,6 +12,13 @@ model-only Bayesian IRT difficulty (see question_difficulty/notebooks/
 irt_human_vs_model.ipynb) -- the same set used throughout this project's IRT
 validation work, reused here as QG training data for the first time.
 
+build_records() is also imported directly by
+question_difficulty/scripts/prepare_qde_irt_pilot_data.py (a parallel
+experiment: training a Question Difficulty Estimator on the SAME labels,
+to eventually predict difficulty for the ~87K RACE questions this cascade
+was never run on) -- kept as one shared function so both pilots train on
+literally identical ground truth, not two independently-computed versions.
+
 Label construction (see irt_human_vs_model.ipynb's discussion for why):
 1. Drop the 6/432 passages with only 1 question -- centering a single-item
    group always yields exactly 0 regardless of its real difficulty, which
@@ -106,6 +113,7 @@ def build_records() -> list[dict]:
             records.append({
                 "passage": it["passage"],
                 "question": it["question"],
+                "answer": it["correct_answer_text"],
                 "difficulty": bucket(centered[item_id]),
                 "source": source,
                 "_split": split,
