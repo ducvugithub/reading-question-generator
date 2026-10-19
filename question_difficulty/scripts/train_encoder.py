@@ -98,6 +98,12 @@ def main() -> None:
     parser.add_argument("--epochs",      type=int,   default=5)
     parser.add_argument("--batch-size",  type=int,   default=16)
     parser.add_argument("--lr",          type=float, default=2e-5)
+    parser.add_argument("--freeze-encoder", action="store_true",
+                        help="Freeze the encoder (train only the classifier head, a linear probe) -- "
+                             "intended for small datasets where full fine-tuning overfits fast")
+    parser.add_argument("--unfreeze-last-n-layers", type=int, default=0,
+                        help="With --freeze-encoder, also re-enable gradients for the top N transformer "
+                             "blocks -- a middle ground between a pure linear probe and full fine-tuning")
     parser.add_argument("--limit",       type=int,   default=None,
                         help="Max records per split (for smoke tests)")
     args = parser.parse_args()
@@ -123,8 +129,13 @@ def main() -> None:
     test_loader  = DataLoader(QDEDataset(test_records,  tokenizer, args.max_len),
                               batch_size=args.batch_size)
 
-    model = EncoderQDE(args.model_name).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    model = EncoderQDE(args.model_name, freeze_encoder=args.freeze_encoder,
+                        unfreeze_last_n_layers=args.unfreeze_last_n_layers).to(device)
+    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    n_total = sum(p.numel() for p in model.parameters())
+    print(f"Trainable params: {n_trainable:,} / {n_total:,} ({n_trainable/n_total:.1%})", flush=True)
+    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],
+                                   lr=args.lr, weight_decay=0.01)
     criterion = torch.nn.CrossEntropyLoss()
 
     best_val_f1, best_epoch = 0.0, 0
