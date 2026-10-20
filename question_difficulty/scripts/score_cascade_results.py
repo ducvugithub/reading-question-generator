@@ -35,8 +35,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "question_difficulty/methods/human_answer_based/irt"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cascade_common import load_items  # noqa: E402 -- see cascade_common.py, ensures the exact same
-                                        # per-item option shuffle used when building prompts
+from cascade_common import load_items, load_race_training_pool  # noqa: E402 -- see cascade_common.py,
+                                        # ensures the exact same per-item option shuffle used when building prompts
 
 
 def main() -> None:
@@ -49,6 +49,9 @@ def main() -> None:
                               "are combined; candidates already present are NOT overwritten)")
     parser.add_argument("--output", default=None,
                          help="Where to write the scored file (default: <results_file> with _scored suffix)")
+    parser.add_argument("--item-source", default="onestopqa", choices=["onestopqa", "race_pool"],
+                         help="Must match whichever --item-source run_answerer_cascade.py used to "
+                              "produce results_file -- the two sources use disjoint item_id schemes.")
     args = parser.parse_args()
 
     results = json.loads(Path(args.results_file).read_text())
@@ -61,7 +64,7 @@ def main() -> None:
             for name, answer in row["answers"].items():
                 results[item_id]["answers"].setdefault(name, answer)
 
-    items = load_items()
+    items = load_race_training_pool() if args.item_source == "race_pool" else load_items()
     correct_answer_by_item = {item_id: it["correct_answer_text"] for item_id, it in items.items()}
     options_by_item = {item_id: it["options"] for item_id, it in items.items()}
 

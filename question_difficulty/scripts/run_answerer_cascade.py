@@ -14,7 +14,9 @@ once per --precisions entry), "claude_bedrock" (ClaudeBedrockAnswerer,
 Anthropic SDK's Bedrock client -- Claude only, converse() gives Claude a
 verbose non-letter answer on this prompt so it stays on this class), or
 "bedrock_converse" (BedrockConverseAnswerer, boto3's provider-agnostic
-converse API -- everything else on Bedrock: Nova, GLM, future providers).
+converse API -- everything else on Bedrock: Nova, GLM, future providers),
+or "laya" (LayaAnswerer, local non-autoregressive decision model -- see
+its commented-out CANDIDATES entry for why it's not enabled).
 Adding a new candidate is one line in CANDIDATES, never a code change.
 
 Which candidates actually run is controlled by --types/--include/--exclude,
@@ -78,7 +80,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cascade_common import load_items  # noqa: E402 -- see cascade_common.py
+from cascade_common import load_items, load_race_training_pool  # noqa: E402 -- see cascade_common.py
 
 
 # (name, type, model_id, default_on) -- see module docstring for `type` meanings
@@ -109,6 +111,15 @@ CANDIDATES = [
     ("nova_pro", "bedrock_converse", "eu.amazon.nova-pro-v1:0", True),
     ("glm47flash", "bedrock_converse", "zai.glm-4.7-flash", True),
     ("gemma3_4b", "bedrock_converse", "google.gemma-3-4b-it", True),
+
+    # Tried manually (not via this script) on 5-7 sample items on 2026-10-02:
+    # ~2/7 correct, near the 25% chance floor -- out of the box, Laya doesn't
+    # read-comprehend at a useful level for this task (see LayaAnswerer's
+    # docstring in question_answering/answerer.py for the full writeup,
+    # including why 512-token context turned out not to be the blocker).
+    # Left commented out rather than removed: a candidate worth revisiting
+    # IF it gets fine-tuned on RACE/OneStopQA-style MC data first.
+    # ("laya", "laya", "convaiinnovations/laya", False),
 ]
 
 ALL_TYPES = ["extractive", "decoder", "claude_bedrock", "bedrock_converse"]
@@ -134,6 +145,9 @@ def _make_loader(type_: str, model_id: str, precision: str | None,
     if type_ == "bedrock_converse":
         from question_answering.answerer import BedrockConverseAnswerer
         return lambda: BedrockConverseAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
+    if type_ == "laya":
+        from question_answering.answerer import LayaAnswerer
+        return lambda: LayaAnswerer(repo=model_id)
     raise ValueError(f"unknown candidate type {type_!r}")
 
 
@@ -224,10 +238,16 @@ def main() -> None:
     parser.add_argument("--aws-profile", default="fsecure-golden-retriever-ci")
     parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--output", default=str(REPO_ROOT / "question_difficulty/scripts/cascade_results.json"))
+    parser.add_argument("--item-source", default="onestopqa", choices=["onestopqa", "race_pool"],
+                         help="onestopqa (default): the 1,296 OneStopQA/RACE items with real human "
+                              "responses. race_pool: the ~87K-question RACE training pool QG actually "
+                              "trains on (no human data, no pre-existing difficulty) -- for enriching "
+                              "cascade-IRT coverage at QG-training scale, see redo_irt_excluding_broken_gold.py's "
+                              "module docstring and cascade_common.load_race_training_pool()'s docstring.")
     args = parser.parse_args()
 
-    items = load_items()
-    print(f"{len(items)} items available with IRT difficulty\n")
+    items = load_race_training_pool() if args.item_source == "race_pool" else load_items()
+    print(f"{len(items)} items available ({args.item_source})\n")
 
     random.seed(args.seed)
     sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
