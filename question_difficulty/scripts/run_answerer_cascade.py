@@ -196,12 +196,24 @@ def run_cascade(items: dict, sample_ids: list[str], specs: list[tuple[str, calla
     Results are item-keyed (not candidate-keyed) so run_cascade can be
     called multiple times against the same output file (e.g. once on
     Roihu for the local decoders, once locally for Haiku) and merged --
-    see score_cascade_results.py's merge step."""
+    see score_cascade_results.py's merge step.
+
+    A candidate already complete for every sample_id in the existing
+    output file is skipped entirely (not reloaded/rerun) -- makes
+    re-running after a timeout/interruption (e.g. a long SLURM job hitting
+    its walltime) resume rather than redo already-finished candidates.
+    Checkpointing is still per-candidate, not per-item: a candidate
+    interrupted PARTWAY through has no items recorded for it yet (nothing
+    is written until the candidate's full item loop finishes), so it
+    reruns from scratch, not from wherever it left off."""
     results = json.loads(output_path.read_text()) if output_path.exists() else {}
     for item_id in sample_ids:
         results.setdefault(item_id, {"difficulty": items[item_id]["difficulty"], "answers": {}})
 
     for name, load_fn in specs:
+        if all(name in results[item_id]["answers"] for item_id in sample_ids):
+            print(f"skipping {name}, already complete for all {len(sample_ids)} items")
+            continue
         print(f"loading {name}...")
         answerer = load_fn()
 
