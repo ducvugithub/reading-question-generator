@@ -256,13 +256,42 @@ def main() -> None:
                               "trains on (no human data, no pre-existing difficulty) -- for enriching "
                               "cascade-IRT coverage at QG-training scale, see redo_irt_excluding_broken_gold.py's "
                               "module docstring and cascade_common.load_race_training_pool()'s docstring.")
+    parser.add_argument("--sample-level", default="question", choices=["question", "passage"],
+                         help="question (default): sample --n-items individual questions uniformly at "
+                              "random across the whole pool -- for race_pool, this scatters across "
+                              "passages (RACE averages ~3.65 questions/passage), so most sampled "
+                              "passages end up with only 1 of their real questions included, which "
+                              "makes passage-mean-centering degenerate for them (see "
+                              "question_generation/scripts/prepare_pilot_irt_difficulty_data.py's "
+                              "docstring for why centering needs >=2 questions/passage). passage: sample "
+                              "whole passages instead, including ALL of each sampled passage's "
+                              "questions -- guarantees every included passage supports centering, at "
+                              "the cost of landing somewhat above --n-items (stops once the cumulative "
+                              "item count reaches --n-items, so the last passage's full question set "
+                              "is always included even if it overshoots slightly).")
     args = parser.parse_args()
 
     items = load_race_training_pool() if args.item_source == "race_pool" else load_items()
     print(f"{len(items)} items available ({args.item_source})\n")
 
     random.seed(args.seed)
-    sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
+    if args.sample_level == "passage":
+        by_passage: dict[str, list[str]] = {}
+        for item_id, it in items.items():
+            by_passage.setdefault(it["passage"], []).append(item_id)
+        passages = list(by_passage.keys())
+        random.shuffle(passages)
+        sample_ids = []
+        n_passages_used = 0
+        for passage in passages:
+            if len(sample_ids) >= args.n_items:
+                break
+            sample_ids.extend(by_passage[passage])
+            n_passages_used += 1
+        print(f"sampled {len(sample_ids)} items from {n_passages_used} whole passages "
+              f"(target was {args.n_items})")
+    else:
+        sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
 
     precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
     types = [t.strip() for t in args.types.split(",") if t.strip()]
