@@ -33,15 +33,29 @@ Model types (4 primary + 1 reference):
                             didn't, before investing in scaling labels to the
                             full 87K set.
 
-Reads pre-split train/val/test from data/qg/raw/{race,hotpotqa,race_irt_pilot}/
-{split}.jsonl — does no splitting itself, so all model types trained on the
-same source share identical test passages.
+  diff-control-irt-10k:     <EASY|MEDIUM|HARD> <passage> → question
+                            Source: data/qg/raw/race_irt_10k (built by
+                            prepare_irt_10k_difficulty_data.py) -- same
+                            construction as diff-control-irt-pilot (real
+                            cascade-IRT difficulty, passage-mean-centered,
+                            tertile-bucketed), but ~9.9K items sampled
+                            directly from the real 87K-question RACE training
+                            pool (Option 3: skip the QDE estimator, which
+                            plateaued at ~991 examples regardless of
+                            architecture, and run the cascade itself at
+                            scale instead).
+
+Reads pre-split train/val/test from
+data/qg/raw/{race,hotpotqa,race_irt_pilot,race_irt_10k}/{split}.jsonl — does
+no splitting itself, so all model types trained on the same source share
+identical test passages.
 
 Usage:
   python question_generation/scripts/prepare_qg_data.py --steps baseline-race diff-control-race
   python question_generation/scripts/prepare_qg_data.py --steps baseline-hotpot focus-control-hotpot
   python question_generation/scripts/prepare_qg_data.py --steps baseline-all
   python question_generation/scripts/prepare_qg_data.py --steps diff-control-irt-pilot
+  python question_generation/scripts/prepare_qg_data.py --steps diff-control-irt-10k
 """
 from __future__ import annotations
 
@@ -69,7 +83,7 @@ def _format_input(model_type: str, rec: dict) -> str:
     if model_type in ("baseline-all", "baseline-race", "baseline-hotpot"):
         return passage
 
-    if model_type in ("diff-control-race", "diff-control-irt-pilot"):
+    if model_type in ("diff-control-race", "diff-control-irt-pilot", "diff-control-irt-10k"):
         return f"<{rec['difficulty']}> {passage}"
 
     if model_type == "focus-control-hotpot":
@@ -87,6 +101,8 @@ def _sources_for_step(model_type: str, raw_dir: Path, split: str) -> list[dict]:
         return _load_raw(raw_dir, "race", split) + _load_raw(raw_dir, "hotpotqa", split)
     if model_type == "diff-control-irt-pilot":
         return _load_raw(raw_dir, "race_irt_pilot", split)
+    if model_type == "diff-control-irt-10k":
+        return _load_raw(raw_dir, "race_irt_10k", split)
     raise ValueError(f"Unknown model_type: {model_type}")
 
 
@@ -124,7 +140,8 @@ def main() -> None:
     parser.add_argument(
         "--steps", nargs="+",
         choices=["baseline-all", "baseline-race", "baseline-hotpot",
-                 "diff-control-race", "focus-control-hotpot", "diff-control-irt-pilot"],
+                 "diff-control-race", "focus-control-hotpot", "diff-control-irt-pilot",
+                 "diff-control-irt-10k"],
         default=["baseline-all", "baseline-race", "diff-control-race",
                  "baseline-hotpot", "focus-control-hotpot"],
     )

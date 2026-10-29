@@ -16,6 +16,10 @@ Model types:
                              a ~1.2K-item pilot set; --base-model should point
                              at an existing baseline-race checkpoint directory
                              to fine-tune from it, not a fresh pretrained model
+  diff-control-irt-10k     — same real cascade-IRT signal as the pilot, but on
+                             ~9.9K items sampled directly from the 87K-question
+                             RACE training pool; --base-model should likewise
+                             point at an existing baseline-race checkpoint
 
 Usage:
   python question_generation/scripts/train_seq2seq.py --model-type baseline-race
@@ -95,7 +99,7 @@ def main() -> None:
     parser.add_argument("--model-type",  required=True,
                         choices=["baseline-all", "baseline-race", "baseline-hotpot",
                                  "diff-control-race", "focus-control-hotpot",
-                                 "diff-control-irt-pilot"])
+                                 "diff-control-irt-pilot", "diff-control-irt-10k"])
     parser.add_argument("--data-dir",    default="data/qg")
     parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")
