@@ -101,6 +101,17 @@ CANDIDATES = [
     ("falcon1b", "decoder", "tiiuae/Falcon3-1B-Instruct", True),
     ("qwen15", "decoder", "Qwen/Qwen2.5-1.5B-Instruct", True),
 
+    # Added for architecture diversity: the local decoder pool above is
+    # Qwen-heavy (3 of 7 entries are Qwen variants), so a shared training-data/
+    # recipe quirk across them (e.g. the main-idea-questions-look-easy pattern
+    # found in diff-control-irt-10k's manual review) can't be told apart from
+    # a genuine cross-architecture LLM property with only this lineup. Llama
+    # and Gemma are both GATED on HF -- license must be accepted on the model
+    # page with the same HF account/token used for HF_HUB_OFFLINE caching, or
+    # these fail to download (not an offline-mode bug, an auth one).
+    ("llama32_1b", "decoder", "meta-llama/Llama-3.2-1B-Instruct", True),
+    ("gemma3_1b", "decoder", "google/gemma-3-1b-it", True),
+
     ("haiku", "claude_bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", True),
     ("opus", "claude_bedrock", "eu.anthropic.claude-opus-4-8", False),  # off by default: real, larger cost per item
 
