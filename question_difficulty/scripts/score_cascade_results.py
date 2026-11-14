@@ -35,8 +35,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "question_difficulty/methods/human_answer_based/irt"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cascade_common import load_items, load_race_training_pool  # noqa: E402 -- see cascade_common.py,
-                                        # ensures the exact same per-item option shuffle used when building prompts
+from cascade_common import (  # noqa: E402 -- see cascade_common.py, ensures the exact same
+    load_items, load_race_training_pool, classify_refusal, is_extractive_candidate,  # per-item option
+)                                       # shuffle used when building prompts
 
 
 def main() -> None:
@@ -69,6 +70,8 @@ def main() -> None:
     options_by_item = {item_id: it["options"] for item_id, it in items.items()}
 
     accuracy: dict[str, list[bool]] = {}
+    n_excluded = 0  # "needs options" refusals only -- see cascade_common.classify_refusal
+    n_content_gap = 0  # "content gap" refusals -- scored as wrong, not excluded (see below)
     for item_id, row in results.items():
         if item_id not in correct_answer_by_item:
             continue
@@ -76,6 +79,26 @@ def main() -> None:
         options = options_by_item[item_id]
         row["gold_answer"] = gold
         for name, answer in row["answers"].items():
+            # Refusal detection only applies to generative candidates --
+            # extractive/BERT-style span extractors can't produce free-form
+            # refusal language; checking them anyway risks false positives
+            # (literal passage dialogue happening to match, e.g. a character
+            # saying "I don't see..."), see cascade_common.py's comment.
+            refusal_kind = None if is_extractive_candidate(name) else classify_refusal(answer.get("raw_text"))
+            if refusal_kind == "needs_options":
+                # prompt-format artifact, not a wrong answer -- excluded from
+                # both accuracy and (via is_correct=None) the IRT response
+                # matrix, same convention data_processing.py uses for broken items
+                answer["is_correct"] = None
+                n_excluded += 1
+                continue
+            if refusal_kind == "content_gap":
+                # genuine failure to find/infer the answer -- real difficulty
+                # signal, counted as wrong rather than excluded
+                answer["is_correct"] = False
+                accuracy.setdefault(name, []).append(False)
+                n_content_gap += 1
+                continue
             letter = answer.get("letter")
             predicted_text = options["ABCD".index(letter)] if letter else None
             is_correct = _texts_match(predicted_text, gold) if predicted_text else False
@@ -85,7 +108,9 @@ def main() -> None:
     output_path = Path(args.output) if args.output else Path(args.results_file).with_name(
         Path(args.results_file).stem + "_scored.json")
     output_path.write_text(json.dumps(results, indent=2))
-    print(f"scored {len(results)} items, {len(accuracy)} candidates -- wrote {output_path}\n")
+    print(f"scored {len(results)} items, {len(accuracy)} candidates, "
+          f"{n_excluded} needs-options refusal(s) excluded, "
+          f"{n_content_gap} content-gap refusal(s) scored as wrong -- wrote {output_path}\n")
 
     print("Accuracy per candidate:")
     for name, correct_flags in sorted(accuracy.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])):

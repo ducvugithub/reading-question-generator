@@ -99,7 +99,8 @@ def main() -> None:
     parser.add_argument("--model-type",  required=True,
                         choices=["baseline-all", "baseline-race", "baseline-hotpot",
                                  "diff-control-race", "focus-control-hotpot",
-                                 "diff-control-irt-pilot", "diff-control-irt-10k"])
+                                 "diff-control-irt-pilot", "diff-control-irt-10k",
+                                 "diff-control-irt-10k-blind"])
     parser.add_argument("--data-dir",    default="data/qg")
     parser.add_argument("--output-dir",  default="question_generation/models/qg")
     parser.add_argument("--base-model",  default="t5-base")
@@ -117,7 +118,7 @@ def main() -> None:
 
     print(f"Model type: {args.model_type.upper()} | limit: {args.limit}", flush=True)
     print("Importing transformers...", flush=True)
-    from transformers import T5ForConditionalGeneration, T5Tokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
+    from transformers import T5ForConditionalGeneration, AutoTokenizer, Seq2SeqTrainer, Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
 
     if Path(args.base_model).exists():
         # A local checkpoint directory (e.g. fine-tuning diff-control-irt-pilot FROM an
@@ -131,7 +132,14 @@ def main() -> None:
             print(f"Downloading {args.base_model} from HuggingFace (~900MB)...", flush=True)
         else:
             print(f"Loading {args.base_model} from cache", flush=True)
-    tokenizer = T5Tokenizer.from_pretrained(args.base_model)
+    # AutoTokenizer, not T5Tokenizer -- the slow T5Tokenizer needs a spiece.model
+    # vocab file, but a from-checkpoint base-model (fine-tuning FROM an existing
+    # run's "final/" dir) may only have saved the fast-tokenizer format
+    # (tokenizer.json), which newer transformers (the cascade job's pinned
+    # 4.57.6 persisted into ~/.local, shadowing the module's bundled version)
+    # won't silently fall back from -- it raises deep inside sentencepiece
+    # instead of a clear "file not found".
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
     model     = T5ForConditionalGeneration.from_pretrained(args.base_model)
 
     data_dir = Path(args.data_dir) / args.model_type

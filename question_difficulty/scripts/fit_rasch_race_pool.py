@@ -42,7 +42,7 @@ def main() -> None:
     triples = []
     for item_id, row in results.items():
         for candidate, answer in row["answers"].items():
-            if "is_correct" not in answer:
+            if answer.get("is_correct") is None:
                 continue
             triples.append((candidate, item_id, answer["is_correct"]))
 

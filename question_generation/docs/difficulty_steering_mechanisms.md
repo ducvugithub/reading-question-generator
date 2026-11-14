@@ -4,6 +4,131 @@ Five approaches to control question generation difficulty in T5-based QG models.
 
 ---
 
+## ⚠️ Update (2026-11-13): as-built FiLM mechanism + loading bug found/fixed
+
+The adapter design below (Section 2) was superseded by a simpler as-built
+version in `question_generation/scripts/diff_film_model.py` — no bottleneck
+MLP, just a per-layer affine transform.
+
+**One-line summary: FiLM-per-difficulty-class, selectively updated.** The
+embedding lookup means each difficulty's γ/β only receives gradient from
+examples tagged with that difficulty — gradient never crosses between
+classes. The shared encoder/decoder, by contrast, gets gradient from every
+example. This selective routing — not the loss function itself — is what
+forces specialization.
+
+- **Two parallel paths, merging at each decoder layer.** Passage →
+  encoder → cross-attention into every decoder layer (normal T5). Difficulty
+  tag → `difficulty_film` embedding lookup (3 rows: EASY/MEDIUM/HARD) → γ,β
+  vectors per decoder layer. The embedding's only input is the difficulty id
+  — never the passage.
+- **Applied via forward hook, after each decoder layer:**
+  `new_output = layer_output * γ + β`. γ starts at 1, β at 0 (identity), so
+  an untrained model behaves exactly like plain T5.
+- **One table, N layers × 2 (γ,β) × d_model each**, shared globally across
+  all passages — a class's row is only ever touched by examples of that
+  class.
+- **Why training specializes it correctly:** the embedding lookup is a hard
+  index. Backprop only routes gradient to the row that was actually
+  selected for a given example — EASY's row only gets updated by EASY
+  examples, MEDIUM's only by MEDIUM's, etc. Decoder/encoder weights, by
+  contrast, get gradient from every example regardless of tag. That
+  selective routing — not anything in the loss function itself — is what
+  forces each difficulty's γ/β to specialize while the shared backbone
+  stays general-purpose.
+- **Bug found 2026-11-13:** `from_pretrained` unconditionally zeroed
+  `difficulty_film.weight` after every load — including loading the
+  model's own already-trained checkpoint. Checkpoints had real learned
+  values (abs mean ~0.028), but inference always discarded them and ran
+  with the identity transform, so EASY/MEDIUM/HARD generated identical
+  output. Same bug existed in the earlier additive-bias model
+  (`diff_cond_model.py`, "v0") — but v0 re-randomizes with noise
+  (`std=0.02`) instead of zeroing, so its "weak but real" differentiation
+  on ~half of test passages was actually just random noise occasionally
+  breaking beam search ties, not learned difficulty signal either.
+- **Fix:** only re-init when the checkpoint genuinely lacks the key (fresh
+  base-model load); load it as-is otherwise. Also removed weight decay on
+  `difficulty_film` (was pulling γ/β back toward identity every step) and
+  raised its LR multiplier 20x → 50x, and raised early-stopping patience
+  3 → 8 (its signal moves slower than the overall seq2seq loss that
+  normally triggers the stop).
+- **Status:** v3 (bug-fixed + above tuning) trained to step 2500/epoch~5
+  on Roihu (job 3057523), checkpoint pulled down — spot-check pending.
+
+### Results across versions (100-passage sample, `eval_film_diff_quality.py`)
+
+Collapse rate = how often EASY/MEDIUM/HARD generate the same question for one
+passage; ROUGE-L is against the real gold question for whichever bucket
+actually has one in the test set.
+
+| Version | Change | Full collapse | Partial (2/3) | Fully distinct | ROUGE-L (EASY/MED/HARD) |
+|---|---|---|---|---|---|
+| v2 | loading bug fixed only | 62% | 31% | 7% | .223/.233/.246 |
+| v3 | + no weight decay on FiLM, LR mult 20x→50x, patience 3→8 | 29% | 54% | 17% | .241/.225/.247 |
+| v4 | + MC-dependent stems ("which of the following is TRUE") filtered from training data | 34% | 43% | 23% | .241/.226/.269 |
+| v5 | + LR mult 50x→100x, patience 8→16 | **17%** | 42% | **41%** | .243/**.207**/.243 |
+
+v5 is the current best: full collapse nearly halved vs v4, fully-distinct
+nearly doubled. EASY/HARD quality held steady; MEDIUM dipped (.226→.207) —
+an isolated tradeoff, not a broad regression. Checkpoint:
+`question_generation/models/qg_10k_blind_film_v5/final` (trained on
+`data/qg_v3/diff-control-irt-10k-blind`, job 3064000, step 4250/8660).
+
+Pushed further: v6 (LR mult 100x→150x, patience 16→24, same data) —
+job 3066282, step 6250/8660, train_loss 0.764.
+
+| v6 | + LR mult 150x, patience 24 | **11%** | 46% | **43%** | .238/.211/.227 |
+
+v6 vs v5: collapse keeps dropping but with diminishing returns (17%→11%,
+smaller jump than v4→v5's 34%→17%), and the quality cost spreads across
+EASY/HARD this time instead of concentrating in MEDIUM (which actually
+improved, .207→.211). **Locked in as current best** — qualitative spot-check
+(8 passages, separate seed) confirms real passage-grounded differentiation
+on clear cases (e.g. "Macao": EASY/MEDIUM/HARD each ask a genuinely
+different angle), with remaining collapse now mostly generic-but-valid
+fallback phrasings ("What can be inferred from the passage?", "What's the
+best title for the passage?") rather than the old garbage or
+options-dependent junk.
+
+**Stopping the LR/patience-push approach here** — diminishing returns,
+next lever (if pursued) should be the direct anti-collapse loss term
+(penalize similarity between the three difficulty-conditioned outputs for
+the same passage) rather than pushing these two knobs further.
+
+Checkpoints: `question_generation/models/qg_10k_blind_film_v5/final`,
+`question_generation/models/qg_10k_blind_film_v6/final` (both on
+`data/qg_v3/diff-control-irt-10k-blind`).
+
+### Anti-collapse loss term (v7, v8) — `train_seq2seq_film_anticollapse.py`
+
+Implemented the lever flagged above: for every training example, encode once
+and decode the SAME teacher-forced target sequence three times (once per
+difficulty class), then penalize the mean pairwise cosine similarity between
+the three resulting token-probability distributions, added to the normal
+cross-entropy loss (weight 0.3). Only the "own" class's `.loss` is real
+supervision — the other two classes' logits are used purely for the
+diversity penalty, never trained toward this example's actual target text.
+
+| Version | Change | Full collapse | Partial | Fully distinct | ROUGE-L (E/M/H) |
+|---|---|---|---|---|---|
+| v7 | anti-collapse loss alone, same LR/patience as v5 (100x/16) | 16% | 46% | 38% | .228/.232/.257 |
+| **v8** | anti-collapse loss + v6's LR/patience (150x/24) | **9%** | 39% | **52%** | .228/**.229**/**.257** |
+
+v7 alone didn't beat v6 on collapse rate, but clearly improved quality
+(best MEDIUM/HARD ROUGE-L yet) — the loss term doesn't concentrate enough
+force on the stubborn passages by itself. Combined with the stronger
+LR/patience push (v8), the two levers compound rather than conflict: new
+best on every structural metric (9% collapse, 52% fully-distinct) while
+keeping v7's quality gains on MEDIUM/HARD. **v8 is the new best model,
+locked in.**
+
+Checkpoints: `question_generation/models/qg_10k_blind_film_v7/final`,
+`question_generation/models/qg_10k_blind_film_v8/final` (both on
+`data/qg_v3/diff-control-irt-10k-blind`, script
+`train_seq2seq_film_anticollapse.py`).
+
+---
+
 ## ⚠️ Update: token-only conditioning empirically tested, doesn't steer
 
 Section 1 below was originally speculative ("Current Implementation"). It's

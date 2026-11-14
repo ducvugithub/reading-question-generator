@@ -56,9 +56,9 @@ def _split_bucket(passage: str, train_ratio: float = 0.8, val_ratio: float = 0.1
     return "test"
 
 
-def build_records() -> list[dict]:
+def build_records(difficulty_file: Path) -> list[dict]:
     items = load_race_training_pool()
-    item_difficulty = json.loads(DIFFICULTY_FILE.read_text())
+    item_difficulty = json.loads(difficulty_file.read_text())
 
     by_passage: dict[str, list[str]] = defaultdict(list)
     for item_id, it in items.items():
@@ -111,12 +111,13 @@ def build_records() -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", default="data/qg/raw/race_irt_10k")
+    parser.add_argument("--difficulty-file", default=str(DIFFICULTY_FILE))
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    records = build_records()
+    records = build_records(Path(args.difficulty_file))
     by_split = defaultdict(list)
     for r in records:
         by_split[r.pop("_split")].append(r)

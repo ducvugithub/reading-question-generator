@@ -8,11 +8,14 @@ no real implementation. This module only asks the one question a cascade
 actually needs: given a passage+question+options, which letter does this
 model pick, and how confident is it?
 
-Local decoder models (DecoderOnlyQAModel) already have this exact method
-(predict_multiple_choice_answer) for the attention-entropy notebook's
-correctness check -- LocalDecoderAnswerer below just adapts it to this
-shared Answerer interface so it can sit in the same cascade list as the
-extractive and remote answerers.
+LocalDecoderAnswerer and LocalExtractiveAnswerer are both BLIND by design:
+neither sees the 4 options when producing its answer (free-text generation
+or span extraction), and both map their free-text answer to the closest
+option the same way, via semantic_matcher.best_option_index -- see each
+class's docstring for why this replaced showing options directly to the
+decoder (predict_multiple_choice_answer, still used by DecoderOnlyQAModel
+for the attention-entropy notebook's own correctness check, just no longer
+by this module).
 """
 from __future__ import annotations
 
@@ -33,16 +36,47 @@ class Answerer(ABC):
 
 class LocalDecoderAnswerer(Answerer):
     """Wraps a DecoderOnlyQAModel (question_answering/qa_model.py) --
-    local, open-weight, causal decoder (e.g. Qwen). Confidence is always
-    populated (mean per-step token probability)."""
+    local, open-weight, causal decoder (e.g. Qwen). BLIND by design: the
+    model never sees the 4 options, it only generates a free-text answer
+    (predict_answer, same method GenerativeQAModel/ExtractiveQAModel are
+    scored with elsewhere) -- the resulting text is then mapped to the
+    closest option via semantic_matcher.best_option_index, exactly the
+    same mapping LocalExtractiveAnswerer uses below.
+
+    This replaces the earlier design (predict_multiple_choice_answer,
+    which showed all 4 options directly in the prompt and asked for a
+    letter) -- that gave decoders a structural advantage over
+    LocalExtractiveAnswerer (which never saw the options either, but was
+    scored via literal token-overlap against them). The asymmetry
+    confounded the cascade's "which questions are hard" signal with "which
+    answerer style this question favors" rather than genuine difficulty
+    (see question_difficulty cascade investigation, 2026-10 -- extractive
+    models looked artificially weak specifically on main-idea/paraphrase-
+    style questions as a result). Confidence is still the mean per-step
+    token probability of the free-text generation."""
 
     def __init__(self, model):
         self.model = model  # a DecoderOnlyQAModel instance
         self.name = model.model_name
+        self.last_raw_text: str | None = None  # the pre-mapping free-text answer, for
+        # auditing/re-scoring the semantic match later without re-running the model --
+        # see run_cascade()'s results["raw_text"], added 2026-11-11 after finding the
+        # mapping can be noisy on short/paraphrase-heavy options (e.g. titles).
 
     def answer(self, passage: str, question: str, options: list[str]) -> tuple[str | None, float | None]:
-        letter, confidence = self.model.predict_multiple_choice_answer(passage, question, options)
-        return letter, confidence
+        from question_answering.semantic_matcher import best_option_index
+
+        # 32 tokens + the "one short sentence" prompt keeps the answer's
+        # key content near the start (less truncation risk than a bare
+        # "answer concisely") while still bounding wall-clock cost --
+        # autoregressive decoding is sequential, see
+        # DecoderOnlyQAModel.predict_answer's docstring.
+        text, confidence = self.model.predict_answer(passage, question, max_new_tokens=32)
+        self.last_raw_text = text
+        if not text.strip():
+            return None, confidence
+        best_idx = best_option_index(text, options, question=question)
+        return "ABCD"[best_idx], confidence
 
 
 class LocalExtractiveAnswerer(Answerer):
@@ -50,23 +84,28 @@ class LocalExtractiveAnswerer(Answerer):
     local, open-weight, BERT/RoBERTa/DeBERTa-style span extractor. These
     models don't pick a letter directly -- they extract a passage SPAN --
     so this picks whichever option's text best matches the extracted
-    span, via QAEvaluator.token_f1 (already used elsewhere in this project
-    for exactly this kind of predicted-vs-gold text comparison). No
+    span, via semantic_matcher.best_option_index (embedding cosine
+    similarity, not literal token overlap -- token_f1 was tried first and
+    systematically penalized a correct-but-paraphrased option, which is
+    common for main-idea/inference questions whose gold option is rarely a
+    verbatim passage span; see semantic_matcher's module docstring). No
     calibrated confidence for the *letter* choice exists (the model's own
     confidence is over the span, not over which option matches it), so
     this always returns None for confidence."""
 
     def __init__(self, model):
-        from question_answering.qa_evaluator import QAEvaluator
-
         self.model = model  # an ExtractiveQAModel instance
         self.name = model.model_name
-        self._evaluator = QAEvaluator()
+        self.last_raw_text: str | None = None  # see LocalDecoderAnswerer's matching docstring
 
     def answer(self, passage: str, question: str, options: list[str]) -> tuple[str | None, float | None]:
+        from question_answering.semantic_matcher import best_option_index
+
         span, _ = self.model.predict_answer(passage, question)
-        scores = [self._evaluator.token_f1(span, opt) for opt in options]
-        best_idx = max(range(len(options)), key=lambda i: scores[i])
+        self.last_raw_text = span
+        if not span.strip():
+            return None, None
+        best_idx = best_option_index(span, options, question=question)
         return "ABCD"[best_idx], None
 
 
@@ -105,6 +144,53 @@ class ClaudeAPIAnswerer(Answerer):
         text = next((b.text for b in response.content if b.type == "text"), "")
         letter = next((c for c in text.upper() if c in "ABCD"), None)
         return letter, None  # the API doesn't expose a token-probability confidence
+
+
+class LayaAnswerer(Answerer):
+    """convaiinnovations/laya -- local, non-autoregressive "System 1" decision
+    model (ModernBERT-large backbone, 421M params, Apache 2.0, pip package
+    `laya`). Instead of generating text, it scores a typed "choice" question
+    directly against the option texts as criteria and returns calibrated
+    per-option probabilities in a single forward pass (~tens of ms on CPU
+    once warm). No API cost, no cloud call.
+
+    Tried manually on 5-7 sample items (2026-10-02): picked the correct
+    option on only ~2/7, i.e. close to the 25% chance floor for 4-option MC
+    -- plus a startup warning that this checkpoint "ships invalid
+    temperatures", so its reported `answer_confidence` is flagged
+    uncalibrated on top of that. 512-token context was NOT the limiting
+    factor in practice (a 635-word passage + question + options loaded fine,
+    no truncation) -- the `laya-multilingual` checkpoint (mmBERT-base, 322M,
+    1024 ctx) was tried for the longer-context headroom and did WORSE, not
+    better, on accuracy.
+
+    Net: out of the box, Laya does not read-comprehend at a useful level for
+    this task -- it would likely need fine-tuning on reading-comprehension
+    MC data (RACE/OneStopQA, or similar) before being a meaningful cascade
+    rung. Left here, wired but NOT added to CANDIDATES in
+    run_answerer_cascade.py, in case that's worth doing later."""
+
+    def __init__(self, repo: str = "convaiinnovations/laya"):
+        import laya
+
+        self.repo = repo
+        self.name = repo
+        self.agent = laya.load(repo)
+
+    def answer(self, passage: str, question: str, options: list[str]) -> tuple[str | None, float | None]:
+        letters = ["A", "B", "C", "D"][: len(options)]
+        criteria = {letters[i]: options[i] for i in range(len(options))}
+        state = f"Passage: {passage}\n\nQuestion: {question}"
+        questions = {
+            "answer": {
+                "type": "choice",
+                "instructions": "Which option correctly answers the question about the passage?",
+                "criteria": criteria,
+            }
+        }
+        result = self.agent.predict(state, questions)
+        answer = result["answers"]["answer"]
+        return answer["choice"], answer["answer_confidence"]
 
 
 class BedrockConverseAnswerer(Answerer):
@@ -205,3 +291,72 @@ class ClaudeBedrockAnswerer(Answerer):
         text = next((b.text for b in response.content if b.type == "text"), "")
         letter = next((c for c in text.upper() if c in "ABCD"), None)
         return letter, None
+
+
+class BlindClaudeBedrockAnswerer(ClaudeBedrockAnswerer):
+    """BLIND variant of ClaudeBedrockAnswerer: never shows the model the 4
+    options. Free-text-generates an answer (same style as
+    LocalDecoderAnswerer) and maps it to the closest option via
+    semantic_matcher.best_option_index.
+
+    Exists because plain ClaudeBedrockAnswerer shows all 4 options
+    directly in the prompt ("Answer with the letter only") -- a structural
+    MCQ advantage the local blind answerers (LocalDecoderAnswerer,
+    LocalExtractiveAnswerer) don't have. Mixing the options-shown variant
+    into an otherwise-blind cascade (as run_answerer_cascade_race_pool_blind.job
+    intends) would bias both the correctness signal and the IRT ability
+    estimates toward "good at MCQ elimination" rather than genuine reading
+    comprehension -- found 2026-11-11 while auditing the cascade before
+    adding Haiku as a candidate, see cascade_common.py's stem-filter
+    comment for the related quality-audit context.
+
+    Use this (not ClaudeBedrockAnswerer) for any candidate meant to run
+    inside the blind cascade."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.last_raw_text: str | None = None  # see LocalDecoderAnswerer's matching docstring --
+        # saved so a future matching-logic change can re-score without a new (billed) Bedrock call.
+
+    def _llm_tiebreak(self, text: str, options: list[str]) -> int:
+        """semantic_matcher's tier-4 llm_tiebreak_fn -- reuses this
+        instance's own Bedrock client/credentials rather than duplicating
+        AWS setup in semantic_matcher.py (which has no AWS dependency
+        otherwise, since LocalDecoderAnswerer/LocalExtractiveAnswerer run
+        offline on Roihu with no Bedrock access). See
+        question_answering/docs/semantic_matcher_tiers.md -- tested at
+        67.1% accuracy on the ambiguous slice this fires for, vs 38.5% for
+        the embedding tier alone."""
+        prompt = (
+            f"A model answered a reading-comprehension question with this free-text answer:\n"
+            f'"{text}"\n\n'
+            f"Which of these 4 options does the answer most closely match in meaning?\n"
+            f"A) {options[0]}\nB) {options[1]}\nC) {options[2]}\nD) {options[3]}\n\n"
+            "Respond with just the letter (A, B, C, or D)."
+        )
+        response = self.client.messages.create(
+            model=self.model, max_tokens=4,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        reply = next((b.text for b in response.content if b.type == "text"), "")
+        letter = next((c for c in reply.upper() if c in "ABCD"), None)
+        return "ABCD".index(letter) if letter else 0
+
+    def answer(self, passage: str, question: str, options: list[str]) -> tuple[str | None, float | None]:
+        from question_answering.semantic_matcher import best_option_index
+
+        prompt = (
+            f"Passage: {passage}\n\nQuestion: {question}\n\n"
+            "Answer the question using only information from the passage. "
+            "Respond with just the answer, one short sentence, no preamble."
+        )
+        response = self.client.messages.create(
+            model=self.model, max_tokens=32,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        self.last_raw_text = text
+        if not text.strip():
+            return None, None
+        best_idx = best_option_index(text, options, question=question, llm_tiebreak_fn=self._llm_tiebreak)
+        return "ABCD"[best_idx], None

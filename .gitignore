@@ -35,3 +35,11 @@ Thumbs.db
 
 # SLURM job scripts (machine-specific, not committed)
 slurms/
+
+# Generated cascade/IRT run outputs (large, per-run, reproducible from
+# scripts -- scp'd between machines directly, never committed)
+question_difficulty/scripts/cascade_*.json
+question_difficulty/scripts/irt_*.json
+question_difficulty/scripts/precomputed_sample_*.json
+question_generation/results/
+.scratch_film_diagram.html

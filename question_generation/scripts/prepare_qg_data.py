@@ -83,7 +83,8 @@ def _format_input(model_type: str, rec: dict) -> str:
     if model_type in ("baseline-all", "baseline-race", "baseline-hotpot"):
         return passage
 
-    if model_type in ("diff-control-race", "diff-control-irt-pilot", "diff-control-irt-10k"):
+    if model_type in ("diff-control-race", "diff-control-irt-pilot", "diff-control-irt-10k",
+                       "diff-control-irt-10k-blind"):
         return f"<{rec['difficulty']}> {passage}"
 
     if model_type == "focus-control-hotpot":
@@ -103,6 +104,8 @@ def _sources_for_step(model_type: str, raw_dir: Path, split: str) -> list[dict]:
         return _load_raw(raw_dir, "race_irt_pilot", split)
     if model_type == "diff-control-irt-10k":
         return _load_raw(raw_dir, "race_irt_10k", split)
+    if model_type == "diff-control-irt-10k-blind":
+        return _load_raw(raw_dir, "race_irt_10k_blind", split)
     raise ValueError(f"Unknown model_type: {model_type}")
 
 
@@ -141,7 +144,7 @@ def main() -> None:
         "--steps", nargs="+",
         choices=["baseline-all", "baseline-race", "baseline-hotpot",
                  "diff-control-race", "focus-control-hotpot", "diff-control-irt-pilot",
-                 "diff-control-irt-10k"],
+                 "diff-control-irt-10k", "diff-control-irt-10k-blind"],
         default=["baseline-all", "baseline-race", "diff-control-race",
                  "baseline-hotpot", "focus-control-hotpot"],
     )

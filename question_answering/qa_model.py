@@ -641,14 +641,22 @@ class DecoderOnlyQAModel(QAModel):
         assert p_start != -1, "passage text not found verbatim in the templated prompt"
         return full_text, q_start, q_start + len(question), p_start, p_start + len(passage)
 
-    def predict_answer(self, passage: str, question: str) -> tuple[str, float]:
-        user_text = f"Passage: {passage}\n\nQuestion: {question}\nAnswer concisely."
+    def predict_answer(self, passage: str, question: str, max_new_tokens: int = 64) -> tuple[str, float]:
+        """max_new_tokens default (64) suits the attention-entropy/general
+        free-text-QA use case. Autoregressive decoding is sequential (each
+        token is one full forward pass conditioned on everything so far),
+        so wall-clock time scales roughly linearly with this value -- the
+        cascade's LocalDecoderAnswerer passes a smaller budget (e.g. 32)
+        since it only needs a short answer to map to one of 4 options, and
+        at cascade scale (10K+ items x several candidates) 64 tokens here
+        was the dominant cost, not a precision concern."""
+        user_text = f"Passage: {passage}\n\nQuestion: {question}\nAnswer in one short sentence."
         full_text, *_ = self._templated_prompt(user_text, question, passage)
         enc = self.tokenizer(full_text, return_tensors="pt").to(self.device)
 
         with self.torch.no_grad():
             out = self.model.generate(
-                **enc, max_new_tokens=64, do_sample=False,
+                **enc, max_new_tokens=max_new_tokens, do_sample=False,
                 output_scores=True, return_dict_in_generate=True,
             )
 

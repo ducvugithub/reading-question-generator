@@ -112,8 +112,28 @@ CANDIDATES = [
     ("llama32_1b", "decoder", "meta-llama/Llama-3.2-1B-Instruct", True),
     ("gemma3_1b", "decoder", "google/gemma-3-1b-it", True),
 
-    ("haiku", "claude_bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", True),
+    # Added 2026-11-14 for more architecture/scale diversity at the ~1-3B
+    # tier (qwen_judge_rescore.py's judge model now also needs headroom on
+    # Roihu's disk quota, see that script's docstring -- old flan-t5/baseline
+    # QG checkpoints were cleaned up to make room for these plus the judge).
+    ("llama32_3b", "decoder", "meta-llama/Llama-3.2-3B-Instruct", True),  # gated, same HF auth as llama32_1b
+    ("phi35_mini", "decoder", "microsoft/Phi-3.5-mini-instruct", True),
+    ("ministral3_3b", "decoder", "mistralai/Ministral-3-3B-Instruct-2512", True),
+
+    # "haiku"/"opus" (type claude_bedrock) show the model all 4 options
+    # directly -- fine for a non-blind cascade, but NOT for the blind one
+    # (structural MCQ advantage over the local blind answerers). Both
+    # default_on=False here so a plain --types claude_bedrock can't
+    # silently pull a non-blind candidate into a blind run; use the
+    # _blind entries below for that instead.
+    ("haiku", "claude_bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", False),
     ("opus", "claude_bedrock", "eu.anthropic.claude-opus-4-8", False),  # off by default: real, larger cost per item
+
+    # Blind counterparts (BlindClaudeBedrockAnswerer: free-text generate,
+    # then semantic_matcher.best_option_index, same as the local decoder
+    # answerers) -- these are the ones to use for a genuinely blind cascade.
+    ("haiku_blind", "claude_bedrock_blind", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", True),
+    ("sonnet_blind", "claude_bedrock_blind", "eu.anthropic.claude-sonnet-5-5", False),  # add if haiku's ceiling isn't enough
 
     # Non-Anthropic Bedrock models -- verified working via BedrockConverseAnswerer
     # (converse API) on 2026-09-30, same account/region.
@@ -133,7 +153,7 @@ CANDIDATES = [
     # ("laya", "laya", "convaiinnovations/laya", False),
 ]
 
-ALL_TYPES = ["extractive", "decoder", "claude_bedrock", "bedrock_converse"]
+ALL_TYPES = ["extractive", "decoder", "claude_bedrock", "claude_bedrock_blind", "bedrock_converse"]
 
 
 def _make_loader(type_: str, model_id: str, precision: str | None,
@@ -153,6 +173,9 @@ def _make_loader(type_: str, model_id: str, precision: str | None,
     if type_ == "claude_bedrock":
         from question_answering.answerer import ClaudeBedrockAnswerer
         return lambda: ClaudeBedrockAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
+    if type_ == "claude_bedrock_blind":
+        from question_answering.answerer import BlindClaudeBedrockAnswerer
+        return lambda: BlindClaudeBedrockAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
     if type_ == "bedrock_converse":
         from question_answering.answerer import BedrockConverseAnswerer
         return lambda: BedrockConverseAnswerer(model=model_id, aws_region=aws_region, aws_profile=aws_profile)
@@ -199,6 +222,49 @@ def _release(answerer) -> None:
         pass
 
 
+class _ItemTimeout(Exception):
+    pass
+
+
+def _answer_with_timeout(answerer, passage: str, question: str, options: list[str],
+                          timeout_s: int = 90) -> tuple[str | None, float | None]:
+    """Bounds a single answerer.answer() call to `timeout_s` seconds (SIGALRM,
+    Unix-only -- fine for Roihu/local Mac, not Windows). Added after job
+    3008401 hung for 70+ minutes on the exact same item count on
+    extractive_roberta_nonsquad with no progress at all and no error --
+    whatever that item triggered (likely a pathological tokenizer/span-
+    extraction edge case) would otherwise have silently burned the whole
+    8h walltime on one item. 90s is ~60-200x a normal item's cost (observed
+    ~0.3-1.5s/item), generous enough to not false-positive on a merely slow
+    item while still bounding the worst case. On timeout OR any other
+    exception, returns (None, None) so the candidate's loop keeps going --
+    the item is just scored as incorrect/unanswered rather than hanging
+    the whole run."""
+    import signal
+
+    def _handler(signum, frame):
+        raise _ItemTimeout()
+
+    # Reset before the call so a timeout/error leaves last_raw_text as None for
+    # THIS item, rather than stale text from whichever item last succeeded.
+    if hasattr(answerer, "last_raw_text"):
+        answerer.last_raw_text = None
+
+    old_handler = signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(timeout_s)
+    try:
+        return answerer.answer(passage, question, options)
+    except _ItemTimeout:
+        print(f"    TIMEOUT after {timeout_s}s, skipping this item")
+        return None, None
+    except Exception as e:
+        print(f"    ERROR ({e!r}), skipping this item")
+        return None, None
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
 def run_cascade(items: dict, sample_ids: list[str], specs: list[tuple[str, callable]],
                  output_path: Path) -> dict:
     """One candidate fully loaded and run over every sampled item at a
@@ -230,8 +296,12 @@ def run_cascade(items: dict, sample_ids: list[str], specs: list[tuple[str, calla
 
         for i, item_id in enumerate(sample_ids):
             it = items[item_id]
-            letter, confidence = answerer.answer(it["passage"], it["question"], it["options"])
-            results[item_id]["answers"][name] = {"letter": letter, "confidence": confidence}
+            letter, confidence = _answer_with_timeout(answerer, it["passage"], it["question"], it["options"])
+            # last_raw_text (blind answerers only -- LocalDecoderAnswerer/LocalExtractiveAnswerer/
+            # BlindClaudeBedrockAnswerer) is the pre-mapping free-text answer, saved so a future
+            # matching-logic fix can re-score without re-running the model (no new Bedrock cost).
+            raw_text = getattr(answerer, "last_raw_text", None)
+            results[item_id]["answers"][name] = {"letter": letter, "confidence": confidence, "raw_text": raw_text}
             if (i + 1) % 10 == 0 or (i + 1) == len(sample_ids):
                 print(f"  [{name}] {i+1}/{len(sample_ids)} done")
 
@@ -261,6 +331,18 @@ def main() -> None:
     parser.add_argument("--aws-profile", default="fsecure-golden-retriever-ci")
     parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--output", default=str(REPO_ROOT / "question_difficulty/scripts/cascade_results.json"))
+    parser.add_argument("--precomputed-sample", default=None,
+                         help="Path to a JSON file of {item_id: {passage, question, options, "
+                              "correct_answer_text, difficulty}} (as written by precomputing "
+                              "load_race_training_pool() + the same --n-items/--seed/--sample-level "
+                              "sampling locally, then json.dump'ing the resulting dict). When given, "
+                              "skips load_race_training_pool() and the sampling step entirely -- added "
+                              "2026-11-11 because re-deriving this on Roihu (iterating all ~88K RACE "
+                              "rows every single job submission) kept stalling for 15-47+ min under "
+                              "cluster-wide contention on a step that's pure CPU/IO with no GPU "
+                              "involved, so there's no reason to redo it per-job when it's fully "
+                              "deterministic. Ignores --item-source/--n-items/--seed/--sample-level "
+                              "(the file already encodes their effect).")
     parser.add_argument("--item-source", default="onestopqa", choices=["onestopqa", "race_pool"],
                          help="onestopqa (default): the 1,296 OneStopQA/RACE items with real human "
                               "responses. race_pool: the ~87K-question RACE training pool QG actually "
@@ -282,27 +364,33 @@ def main() -> None:
                               "is always included even if it overshoots slightly).")
     args = parser.parse_args()
 
-    items = load_race_training_pool() if args.item_source == "race_pool" else load_items()
-    print(f"{len(items)} items available ({args.item_source})\n")
-
-    random.seed(args.seed)
-    if args.sample_level == "passage":
-        by_passage: dict[str, list[str]] = {}
-        for item_id, it in items.items():
-            by_passage.setdefault(it["passage"], []).append(item_id)
-        passages = list(by_passage.keys())
-        random.shuffle(passages)
-        sample_ids = []
-        n_passages_used = 0
-        for passage in passages:
-            if len(sample_ids) >= args.n_items:
-                break
-            sample_ids.extend(by_passage[passage])
-            n_passages_used += 1
-        print(f"sampled {len(sample_ids)} items from {n_passages_used} whole passages "
-              f"(target was {args.n_items})")
+    if args.precomputed_sample:
+        items = json.loads(Path(args.precomputed_sample).read_text())
+        sample_ids = list(items.keys())
+        print(f"loaded {len(items)} precomputed items from {args.precomputed_sample} "
+              f"(skipped load_race_training_pool() + sampling)\n")
     else:
-        sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
+        items = load_race_training_pool() if args.item_source == "race_pool" else load_items()
+        print(f"{len(items)} items available ({args.item_source})\n")
+
+        random.seed(args.seed)
+        if args.sample_level == "passage":
+            by_passage: dict[str, list[str]] = {}
+            for item_id, it in items.items():
+                by_passage.setdefault(it["passage"], []).append(item_id)
+            passages = list(by_passage.keys())
+            random.shuffle(passages)
+            sample_ids = []
+            n_passages_used = 0
+            for passage in passages:
+                if len(sample_ids) >= args.n_items:
+                    break
+                sample_ids.extend(by_passage[passage])
+                n_passages_used += 1
+            print(f"sampled {len(sample_ids)} items from {n_passages_used} whole passages "
+                  f"(target was {args.n_items})")
+        else:
+            sample_ids = random.sample(list(items.keys()), min(args.n_items, len(items)))
 
     precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
     types = [t.strip() for t in args.types.split(",") if t.strip()]
