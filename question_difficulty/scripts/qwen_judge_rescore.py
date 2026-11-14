@@ -19,9 +19,11 @@ candidate specifically so this kind of re-scoring fix could happen without
 re-running the (expensive) answerer models (see run_answerer_cascade.py's
 run_cascade() comment, 2026-11-11).
 
-Judge model: Qwen2.5-7B-Instruct, fp16 -- deliberately bigger than qwen15
+Judge model: Qwen2.5-3B-Instruct, fp16 -- deliberately bigger than qwen15
 (Qwen2.5-1.5B-Instruct, one of the 13 cascade candidates being judged) so
-the judge isn't just as noisy as what it's grading.
+the judge isn't just as noisy as what it's grading. (7B was tried first but
+didn't fit in Roihu's project disk quota alongside the existing cascade
+checkpoints/results; 3B was the largest that fit after freeing space.)
 
 Usage (on Roihu, GPU):
   python question_difficulty/scripts/qwen_judge_rescore.py \\
@@ -45,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cascade_common import load_items, load_race_training_pool, classify_refusal, is_extractive_candidate  # noqa: E402
 
-JUDGE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+JUDGE_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 CHECKPOINT_EVERY = 200
 BATCH_SIZE = 16
 
